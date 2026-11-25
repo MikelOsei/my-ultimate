@@ -148,9 +148,11 @@ async function catchupText(
   const range = `${since.main}..${main.sha}`
   const [count, records, changed] = await Promise.all([
     git(main.cwd, 'rev-list', '--count', range).then(Number),
+    // A busy monorepo can move thousands of commits between turns; the newest 500 are plenty for a 30-row catch-up.
     git(
-      main.cwd,
+      { cwd: main.cwd, maxBuffer: 32 * 1024 * 1024 },
       'log',
+      '--max-count=500',
       '--name-only',
       '--no-renames',
       '--diff-merges=first-parent',

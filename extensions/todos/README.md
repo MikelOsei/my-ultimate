@@ -34,6 +34,12 @@ header counts questions apart from to-dos. An open to-do's ▶ button (on hover 
 user, `Work on to-do #<id>: <text>` (`Help me with to-do #<id>: …` for the user's own), after its current run if
 it is busy, and opens its conversation. ⌘K “Show open questions” opens this tab.
 
+## Strip
+
+While questions wait on the user, one line above the shown conversation's composer (`composer.above`) lists them,
+newest first, as chips naming the asker and the first question; a chip opens the asking conversation at the message,
+like a question row. The first three show, `+N` opens this tab, and the line goes with the last answer or dismissal.
+
 ## Actions
 
 All user-only, for the panel.

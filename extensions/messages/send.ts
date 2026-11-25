@@ -145,25 +145,35 @@ export async function send(
     let re = input.re
     if (from !== 'user' && input.reply !== false) {
       const log = await tx.doc(Messages, ROOT_CONVERSATION_ID)
-      // Only a message the agent has read is owed; one still queued is unread and gets its own turn.
-      const pending = log.messages.find(
-        (m) => m.to === from && m.from === to && m.reply && m.state === 'delivered',
-      )
+      // Only a message the agent has read is owed; one still queued is unread and gets its own turn. One placed in the
+      // run before its delivery recorded that is read too.
+      const owed = []
+      for (const m of log.messages) {
+        if (m.to !== from || m.from !== to || !m.reply) continue
+        if (m.state === 'sent') {
+          const placed = await tx.submissionByRequest(from as ConversationId, `board:${m.id}`)
+          if (placed?.type !== 'input' || placed.status !== 'placed') continue
+          m.entry = placed.entry
+        } else if (m.state !== 'delivered') continue
+        owed.push(m)
+      }
+      const pending = owed[0]
       // A message to the user who is owed an answer is that answer, with its questions and images.
       if (pending && to === 'user') {
         pending.state = 'answered'
         re = pending.id
       }
-      // An agent messaging a sender whose message it has read and owes an answer is answering: this becomes the reply,
-      // and that message's delivery, seeing it answered, keeps the final answer local.
+      // An agent messaging a sender whose messages it has read and owes answers is answering: this becomes one reply to
+      // all of them, and their deliveries, seeing them answered, keep the final answer local.
       else if (pending) {
-        pending.state = 'answered'
+        for (const m of owed) m.state = 'answered'
         const response = await append(tx, {
           from,
           to,
           text: input.text,
           reply: false,
           re: pending.id,
+          ...(owed.length > 1 ? { also: owed.slice(1).map((m) => m.id) } : {}),
           state: 'sent',
           ...(callId === undefined ? {} : { call: callId }),
           ...(images ? { images } : {}),

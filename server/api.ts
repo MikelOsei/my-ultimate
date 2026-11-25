@@ -1,4 +1,5 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
+import { basename } from 'node:path'
 import { onCommit } from '../lib/commits.ts'
 import type {
   ConversationId,
@@ -17,7 +18,6 @@ import type { Extensions } from './extensions.ts'
 import { context } from './harness.ts'
 import type { OpenHost, PreparedHost } from './harness.ts'
 import type { createSystem } from './system.ts'
-import { requestSwap } from './supervisor-protocol.ts'
 import { UiState } from './ui-state.ts'
 import type { JsonValue } from '@earendil-works/chord'
 import { clampThinkingLevel, getSupportedThinkingLevels } from '@earendil-works/pi-ai'
@@ -28,6 +28,7 @@ import { admit, deviceOf } from './request-security.ts'
 import type { Access } from './request-security.ts'
 import { conversationIndex } from './project.ts'
 import { shortTitle } from '../lib/title.ts'
+import { accentOf, icon, manifest, readAppearance, writeAppearance } from './appearance.ts'
 
 class HttpError extends Error {
   status: number
@@ -83,6 +84,7 @@ function reply(response: ServerResponse, status: number, data: unknown) {
   response.end(JSON.stringify(data))
 }
 function failed(response: ServerResponse, error: unknown) {
+  if (!(error instanceof HttpError)) console.error('Request failed:', error)
   if (!response.headersSent)
     reply(response, error instanceof HttpError ? error.status : 500, {
       error: error instanceof HttpError ? error.message : 'Request failed',
@@ -494,6 +496,27 @@ export async function createApi(
           json(200, await listModels(host.modelRuntime))
           return true
         }
+        if (request.method === 'GET' && url.pathname === '/api/manifest.webmanifest') {
+          const look = await readAppearance(host.home)
+          response.writeHead(200, {
+            'Content-Type': 'application/manifest+json',
+            'Cache-Control': 'no-cache',
+          })
+          response.end(JSON.stringify(manifest(look, basename(host.projectRoot))))
+          return true
+        }
+        if (request.method === 'GET' && url.pathname === '/api/icon.svg') {
+          const accent = accentOf(url.searchParams.get('accent'))
+          const shape = url.searchParams.get('shape')
+          response.writeHead(200, {
+            'Content-Type': 'image/svg+xml',
+            'Cache-Control': 'max-age=86400',
+          })
+          response.end(
+            icon(accent ?? 'violet', shape === 'maskable' || shape === 'favicon' ? shape : 'app'),
+          )
+          return true
+        }
         if (request.method !== 'POST') throw new HttpError(404, 'Unknown endpoint')
         const action = actionPath.exec(url.pathname)
         // Submissions carry images and actions can carry media (a voice recording); other commands stay small.
@@ -533,10 +556,20 @@ export async function createApi(
           json(200, { ok: true, rev })
           return true
         }
+        if (url.pathname === '/api/appearance') {
+          try {
+            await writeAppearance(host.home, data)
+          } catch (error) {
+            throw new HttpError(400, error instanceof Error ? error.message : String(error))
+          }
+          await system.changed()
+          json(200, { ok: true })
+          return true
+        }
         if (url.pathname === '/api/restart') {
-          const error = await requestSwap(async (generation) => {
+          const error = await host.restart(async (generation) => {
             json(202, { ok: true, generation })
-          }, host.build())
+          })
           if (!response.writableEnded) json(500, { ok: false, error })
           return true
         }

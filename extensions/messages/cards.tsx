@@ -21,6 +21,7 @@ import {
   api,
   Card,
   cn,
+  Collapsed,
   events,
   Fold,
   formatAgo,
@@ -29,6 +30,7 @@ import {
   Provided,
   useCompact,
   useConversation,
+  useCollapsed,
   useConversationSummary,
   useDocOf,
   useNow,
@@ -214,6 +216,7 @@ export function Bubble({
     status === 'failed' ||
     status === 'stopped' ||
     status === 'dismissed'
+  if (useCollapsed(entry) && entry) return <Collapsed className="mt-2" entry={entry} />
   // Prose on the page under a name line; what mounts beneath the text shares one quiet card.
   return (
     <section
@@ -230,7 +233,9 @@ export function Bubble({
           <MessageActions
             bubble
             className="ml-auto min-w-0 flex-nowrap justify-end overflow-hidden whitespace-nowrap"
+            collapsible
             entry={entry}
+            replyable
             text={text ?? ''}
             timestamp={at ?? (stored && 'timestamp' in stored ? stored.timestamp : 0)}
           />

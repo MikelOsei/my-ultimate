@@ -2,6 +2,7 @@ import { cn } from 'cn'
 import {
   ArrowUpRightIcon,
   CheckIcon,
+  FileDiffIcon,
   SquareArrowOutUpRightIcon,
   TriangleAlertIcon,
   XIcon,
@@ -45,6 +46,28 @@ export function Open({
       open {label ? `${label} ` : ''}#{id}
       {entry !== undefined ? `/${entry}` : ''}
     </Button>
+  )
+}
+
+/** "review": opens a review of `spec` in the app, beside `Open`; nothing while nothing reviews. */
+export function ReviewButton({ spec }: { spec: string }) {
+  return (
+    <Provided input={spec} point={Review}>
+      {(open) =>
+        open && (
+          <Button
+            className="h-5 shrink-0 gap-1 px-1.5 font-mono text-[11px] text-muted-foreground hover:text-foreground"
+            onClick={open}
+            size="xs"
+            title={`Review ${spec.replace(/\b([0-9a-f]{7})[0-9a-f]{33}\b/g, '$1')}`}
+            variant="ghost"
+          >
+            <FileDiffIcon className="size-3" />
+            review
+          </Button>
+        )
+      }
+    </Provided>
   )
 }
 
@@ -193,6 +216,7 @@ export function LandingCard({
   at,
   divergence,
   sourceEntry,
+  review,
   children,
 }: {
   /** The entry that shows it, which keeps its fold state. */
@@ -207,6 +231,8 @@ export function LandingCard({
   at?: ReactNode
   divergence?: string
   sourceEntry?: number
+  /** The spec of what it landed, `<base>...<sha>`, which its header's review button opens. */
+  review?: string
   children?: ReactNode
 }) {
   const [border, color, Icon, label] = tones[tone]
@@ -236,6 +262,7 @@ export function LandingCard({
           <div className="flex min-w-0 items-center gap-2">
             <Icon className={cn('size-3.5 shrink-0', color)} />
             <Subject className="flex-1" from={from} subject={subject} />
+            {review && <ReviewButton spec={review} />}
             {sourceEntry !== undefined && <Open id={from} entry={sourceEntry} />}
           </div>
           {subject?.summary && (

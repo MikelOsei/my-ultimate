@@ -15,6 +15,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import { InsetCard } from '@/components/ui/inset-card'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { actions, layout, shellKeys } from '../sdk/actions.ts'
@@ -33,6 +34,7 @@ import { Composer } from './composer.tsx'
 import { IconButton } from './header.tsx'
 import { useSurfaceId } from './surface.ts'
 import { Transcript } from './transcript.tsx'
+import { setWidth } from './widths.ts'
 
 /**
  * The bottom line with the `statusline.left` and `statusline.right` slots. On a touch screen of tablet width (an
@@ -185,31 +187,108 @@ function Overlay({
   )
 }
 
-/** The `sidebar` slot as a left column (`mod+b`), or over the conversation on a phone; gone while nothing is in it. */
 /**
- * The docked sidebar's width (18 rem); the title bar's left part takes it beyond a phone on every surface, so the
- * surface tabs stay put and start where Agent's sidebar ends. Change both together.
+ * The drag handle on the inner `edge` of the region it sits in (which must be `relative`): a drag reports each width it
+ * reaches from the region's own and, when it ends, the last one; a double-click resets it. A resize cursor and a thin
+ * accent line on hover and while dragging.
  */
-export const sidebarWidth = 'w-72'
-export const sidebarWidthBeyondPhone = 'md:w-72'
+export function ResizeHandle({
+  label,
+  edge,
+  onResize,
+  onEnd,
+  onReset,
+  className,
+}: {
+  label: string
+  edge: 'left' | 'right'
+  onResize: (width: number) => void
+  onEnd?: (width: number | undefined) => void
+  onReset: () => void
+  className?: string
+}) {
+  const [active, setActive] = useState(false)
+  const resize = (event: PointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0) return
+    event.preventDefault()
+    const handle = event.currentTarget
+    const start = event.clientX
+    const width = handle.parentElement!.getBoundingClientRect().width
+    handle.setPointerCapture(event.pointerId)
+    setActive(true)
+    let last: number | undefined
+    const move = (next: globalThis.PointerEvent) => {
+      last = width + (edge === 'left' ? start - next.clientX : next.clientX - start)
+      onResize(last)
+    }
+    const up = () => {
+      handle.removeEventListener('pointermove', move)
+      handle.removeEventListener('pointerup', up)
+      handle.removeEventListener('pointercancel', up)
+      setActive(false)
+      onEnd?.(last)
+    }
+    handle.addEventListener('pointermove', move)
+    handle.addEventListener('pointerup', up)
+    handle.addEventListener('pointercancel', up)
+  }
+  return (
+    <div
+      aria-label={`Resize ${label}`}
+      aria-orientation="vertical"
+      className={cn(
+        'absolute inset-y-0 z-10 w-2 cursor-col-resize after:absolute after:inset-y-0 after:left-1/2 after:w-px after:bg-brand/60 after:opacity-0 after:transition-opacity hover:after:opacity-100',
+        edge === 'left' ? '-left-1' : '-right-1',
+        active && 'after:opacity-100',
+        className,
+      )}
+      onDoubleClick={onReset}
+      onPointerDown={resize}
+      role="separator"
+    />
+  )
+}
 
+/**
+ * The `sidebar` slot as a left column (`mod+b`), or over the conversation on a phone; gone while nothing is in it.
+ * Docked, its inner edge resizes it (`widths.ts`); the title bar's left part takes the same `--sidebar-width` beyond a
+ * phone on every surface, so the surface tabs start where Agent's sidebar ends.
+ */
 export function Sidebar() {
   useMountRegion('sidebar')
   const open = useRegionOpen('sidebar')
   const viewport = useViewport()
   const empty = slotItems(useExtensions(), 'sidebar').length === 0
   if (empty) return null
-  const look = 'overflow-y-auto border-sidebar-border bg-sidebar text-sidebar-foreground'
+  const look = 'border-sidebar-border bg-sidebar text-sidebar-foreground'
   if (overlays('sidebar', viewport))
     return (
-      <Overlay className={look} onClose={actions.toggleSidebar} open={open} side="left">
+      <Overlay
+        className={cn('overflow-y-auto', look)}
+        onClose={actions.toggleSidebar}
+        open={open}
+        side="left"
+      >
         <Slot name="sidebar" />
       </Overlay>
     )
   if (!open) return null
+  // Docked, it sits in an inset card as Review's file list does; the card's inner edge is the column's, so the title
+  // bar's `--sidebar-width` still ends there and the handle measures the whole column.
   return (
-    <aside className={cn('flex shrink-0 flex-col border-r', sidebarWidth, look)}>
-      <Slot name="sidebar" />
+    <aside className="relative flex w-(--sidebar-width) shrink-0 flex-col py-2 pl-2">
+      <InsetCard className="flex min-h-0 flex-1 flex-col overflow-hidden text-sidebar-foreground">
+        <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+          <Slot name="sidebar" />
+        </div>
+      </InsetCard>
+      <ResizeHandle
+        className="pointer-coarse:hidden"
+        edge="right"
+        label="sidebar"
+        onReset={() => setWidth('sidebar', undefined)}
+        onResize={(width) => setWidth('sidebar', width)}
+      />
     </aside>
   )
 }
@@ -388,8 +467,15 @@ export function Panels() {
       </Overlay>
     )
   return (
-    <aside className="flex w-[22rem] shrink-0 flex-col border-l border-border/70 bg-sidebar">
-      {content}
+    <aside className="relative flex w-(--panels-width) shrink-0 flex-col py-2 pr-2">
+      <InsetCard className="flex min-h-0 flex-1 flex-col overflow-hidden">{content}</InsetCard>
+      <ResizeHandle
+        className="pointer-coarse:hidden"
+        edge="left"
+        label="panel"
+        onReset={() => setWidth('panels', undefined)}
+        onResize={(width) => setWidth('panels', width)}
+      />
     </aside>
   )
 }
@@ -421,7 +507,6 @@ export function Dock({
   )
   const open = stored.open !== false
   const [dragging, setDragging] = useState<number>()
-  const live = useRef<number | undefined>(undefined)
   const { busy } = useConversation()
   const width = clamp(dragging ?? (typeof stored.width === 'number' ? stored.width : DOCK_WIDTH))
   const border = side === 'right' ? 'border-l' : 'border-r'
@@ -446,58 +531,34 @@ export function Dock({
       </aside>
     )
 
-  const resize = (event: PointerEvent<HTMLDivElement>) => {
-    if (event.button !== 0) return
-    event.preventDefault()
-    const handle = event.currentTarget
-    const start = event.clientX
-    handle.setPointerCapture(event.pointerId)
-    const move = (next: globalThis.PointerEvent) => {
-      const delta = side === 'right' ? start - next.clientX : next.clientX - start
-      live.current = clamp(width + delta)
-      setDragging(live.current)
-    }
-    const up = () => {
-      handle.removeEventListener('pointermove', move)
-      handle.removeEventListener('pointerup', up)
-      handle.removeEventListener('pointercancel', up)
-      if (live.current !== undefined) setStored({ open: true, width: live.current })
-      live.current = undefined
-      setDragging(undefined)
-    }
-    handle.addEventListener('pointermove', move)
-    handle.addEventListener('pointerup', up)
-    handle.addEventListener('pointercancel', up)
-  }
-
   return (
     <aside
-      className={cn('relative flex shrink-0 flex-col border-border/70', border)}
+      className={cn('relative flex shrink-0 flex-col py-2', side === 'right' ? 'pr-2' : 'pl-2')}
       style={{ width }}
     >
-      <div
-        aria-label={`Resize ${title}`}
-        aria-orientation="vertical"
-        className={cn(
-          'absolute inset-y-0 z-10 w-2 cursor-col-resize after:absolute after:inset-y-0 after:left-1/2 after:w-px after:bg-brand/60 after:opacity-0 after:transition-opacity hover:after:opacity-100',
-          side === 'right' ? '-left-1' : '-right-1',
-          dragging !== undefined && 'after:opacity-100',
-        )}
-        onDoubleClick={() => setStored({ open: true, width: DOCK_WIDTH })}
-        onPointerDown={resize}
-        role="separator"
+      <ResizeHandle
+        edge={side === 'right' ? 'left' : 'right'}
+        label={title}
+        onEnd={(last) => {
+          if (last !== undefined) setStored({ open: true, width: clamp(last) })
+          setDragging(undefined)
+        }}
+        onReset={() => setStored({ open: true, width: DOCK_WIDTH })}
+        onResize={(next) => setDragging(clamp(next))}
       />
-      <div className="flex h-9 shrink-0 items-center justify-between border-b border-border/70 pr-1 pl-3 font-mono text-[11.5px] text-muted-foreground">
-        {title}
-        <IconButton label={`Hide ${title}`} onClick={() => setOpen(false)}>
-          {side === 'right' ? (
-            <PanelRightCloseIcon className="size-4" />
-          ) : (
-            <PanelLeftCloseIcon className="size-4" />
-          )}
-        </IconButton>
-      </div>
-      {children}
+      <InsetCard className="flex min-h-0 flex-1 flex-col overflow-hidden">
+        <div className="flex h-9 shrink-0 items-center justify-between border-b border-border/70 pr-1 pl-3 font-mono text-[11.5px] text-muted-foreground">
+          {title}
+          <IconButton label={`Hide ${title}`} onClick={() => setOpen(false)}>
+            {side === 'right' ? (
+              <PanelRightCloseIcon className="size-4" />
+            ) : (
+              <PanelLeftCloseIcon className="size-4" />
+            )}
+          </IconButton>
+        </div>
+        {children}
+      </InsetCard>
     </aside>
   )
 }

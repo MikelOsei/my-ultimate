@@ -12,8 +12,11 @@
  * Theme tokens. Dark is the default (index.html sets `class="dark"`); light tokens are complete.
  * Neutral surfaces with a faint cool tint, one accent (`brand`, Pi's violet), semantic colours for state.
  * Use them as Tailwind utilities: bg-background, text-muted-foreground, border-border, text-brand, bg-success/10 …
+ * `data-theme` on the root picks the dark theme when it is not Charcoal (extensions/theme); `data-preview` on an element
+ * shows a theme there, light or dark, as the Appearance panel's previews do.
  */
-:root {
+:root,
+[data-preview='light'] {
   --background: oklch(0.985 0.002 270);
   --foreground: oklch(0.22 0.006 270);
   --card: oklch(0.97 0.003 270);
@@ -31,9 +34,7 @@
   --destructive: oklch(0.56 0.19 25);
   --border: oklch(0.9 0.005 270);
   --input: oklch(0.86 0.006 270);
-  --ring: oklch(0.55 0.17 300 / 0.55);
-  --brand: oklch(0.52 0.18 300);
-  --brand-foreground: oklch(0.98 0.01 300);
+  --ring: color-mix(in oklab, var(--brand) 55%, transparent);
   --success: oklch(0.55 0.14 155);
   --warning: oklch(0.6 0.14 70);
   --note: oklch(0.74 0.11 92);
@@ -50,37 +51,83 @@
   --sidebar-primary-foreground: var(--primary-foreground);
   --sidebar-ring: var(--ring);
   --radius: 0.5rem;
+  /* Conversation prose; the Appearance panel (extensions/theme) sets it on the root, 14–17px. */
+  --prose-size: 15px;
 }
 
-.dark {
-  --background: oklch(0.178 0.003 270);
+/*
+ * The accent. Each theme fixes its lightness, so every preset reads as well as the violet; a preset picks only the hue
+ * and scales the chroma (`data-accent` on the root, or on a swatch, which then shows that accent; a swatch in a dark
+ * theme's preview takes the dark lightness). Ruby alone sets its own lightness: a ruby that light reads pink.
+ */
+:root,
+[data-accent] {
+  --brand-h: 300;
+  --brand-c: 1;
+  --brand: oklch(0.52 calc(0.18 * var(--brand-c)) var(--brand-h));
+  --brand-foreground: oklch(0.98 calc(0.01 * var(--brand-c)) var(--brand-h));
+}
+.dark,
+.dark [data-accent],
+[data-preview]:not([data-preview='light']) [data-accent] {
+  --brand: oklch(0.75 calc(0.13 * var(--brand-c)) var(--brand-h));
+  --brand-foreground: oklch(0.2 calc(0.03 * var(--brand-c)) var(--brand-h));
+}
+[data-accent='blue'] {
+  --brand-h: 255;
+}
+[data-accent='teal'] {
+  --brand-h: 195;
+  --brand-c: 0.8;
+}
+[data-accent='green'] {
+  --brand-h: 145;
+  --brand-c: 0.85;
+}
+[data-accent='pink'] {
+  --brand-h: 350;
+}
+[data-accent='ruby'] {
+  --brand-h: 18;
+  --brand: oklch(0.46 0.18 18);
+}
+.dark[data-accent='ruby'],
+.dark [data-accent='ruby'],
+[data-preview]:not([data-preview='light']) [data-accent='ruby'] {
+  --brand: oklch(0.68 0.18 18);
+}
+[data-accent='graphite'] {
+  --brand-c: 0;
+}
+
+.dark,
+[data-preview='charcoal'] {
+  --background: oklch(0.235 0.003 270);
   --foreground: oklch(0.87 0.004 270);
-  --card: oklch(0.2 0.004 270);
+  --card: oklch(0.257 0.004 270);
   --card-foreground: var(--foreground);
-  --popover: oklch(0.205 0.004 270);
+  --popover: oklch(0.262 0.004 270);
   --popover-foreground: var(--foreground);
   --primary: oklch(0.9 0.004 270);
   --primary-foreground: oklch(0.2 0.004 270);
-  --secondary: oklch(0.235 0.005 270);
+  --secondary: oklch(0.292 0.005 270);
   --secondary-foreground: var(--foreground);
-  --muted: oklch(0.235 0.005 270);
-  --muted-foreground: oklch(0.64 0.01 270);
-  --accent: oklch(0.255 0.006 270);
+  --muted: oklch(0.292 0.005 270);
+  --muted-foreground: oklch(0.66 0.01 270);
+  --accent: oklch(0.312 0.006 270);
   --accent-foreground: var(--foreground);
   --destructive: oklch(0.66 0.18 25);
-  --border: oklch(0.275 0.005 270);
-  --input: oklch(0.3 0.006 270);
-  --ring: oklch(0.74 0.13 300 / 0.5);
-  --brand: oklch(0.75 0.13 300);
-  --brand-foreground: oklch(0.2 0.03 300);
+  --border: oklch(0.332 0.005 270);
+  --input: oklch(0.357 0.006 270);
+  --ring: color-mix(in oklab, var(--brand) 50%, transparent);
   --success: oklch(0.76 0.14 155);
   --warning: oklch(0.82 0.13 80);
   --note: oklch(0.85 0.09 95);
   --error: oklch(0.7 0.17 25);
   --diff-add: oklch(0.78 0.14 160);
   --diff-del: oklch(0.72 0.16 25);
-  --terminal: oklch(0.155 0.003 270);
-  --sidebar: oklch(0.165 0.003 270);
+  --terminal: oklch(0.212 0.003 270);
+  --sidebar: oklch(0.222 0.003 270);
   --sidebar-foreground: var(--foreground);
   --sidebar-border: var(--border);
   --sidebar-accent: var(--accent);
@@ -88,6 +135,88 @@
   --sidebar-primary: var(--primary);
   --sidebar-primary-foreground: var(--primary-foreground);
   --sidebar-ring: var(--ring);
+}
+
+/*
+ * The other dark themes: Charcoal's levels in their own tint. Each sets the surfaces, lines and text; state colours
+ * and the accent's lightness stay Charcoal's, and each theme's default accent is in extensions/theme/appearance.tsx.
+ */
+.dark[data-theme='ruby'],
+[data-preview='ruby'] {
+  /* Charcoal half a step darker, with a faint ruby tinge. */
+  --background: oklch(0.207 0.007 10);
+  --foreground: oklch(0.88 0.006 15);
+  --card: oklch(0.228 0.009 10);
+  --popover: oklch(0.233 0.009 10);
+  --primary: oklch(0.9 0.006 15);
+  --primary-foreground: oklch(0.2 0.007 10);
+  --secondary: oklch(0.262 0.011 10);
+  --muted: oklch(0.262 0.011 10);
+  --muted-foreground: oklch(0.66 0.018 12);
+  --accent: oklch(0.282 0.013 10);
+  --border: oklch(0.302 0.012 10);
+  --input: oklch(0.327 0.013 10);
+  --terminal: oklch(0.185 0.006 10);
+  --sidebar: oklch(0.195 0.007 10);
+}
+.dark[data-theme='dracula'],
+[data-preview='dracula'] {
+  /* Dracula's background, current line and foreground; its comment blue, lighter, for secondary text. */
+  --background: oklch(0.288 0.022 277);
+  --foreground: oklch(0.95 0.008 107);
+  --card: oklch(0.31 0.024 277);
+  --popover: oklch(0.315 0.024 277);
+  --primary: oklch(0.95 0.008 107);
+  --primary-foreground: oklch(0.288 0.022 277);
+  --secondary: oklch(0.345 0.028 278);
+  --muted: oklch(0.345 0.028 278);
+  --muted-foreground: oklch(0.72 0.065 274);
+  --accent: oklch(0.37 0.032 279);
+  --border: oklch(0.39 0.03 279);
+  --input: oklch(0.42 0.034 279);
+  --terminal: oklch(0.245 0.018 280);
+  --sidebar: oklch(0.255 0.019 280);
+}
+.dark[data-theme='candy'],
+[data-preview='candy'] {
+  /* Plum, with pink-white text and lavender secondary text. */
+  --background: oklch(0.2 0.028 330);
+  --foreground: oklch(0.93 0.02 340);
+  --card: oklch(0.222 0.03 330);
+  --popover: oklch(0.227 0.03 330);
+  --primary: oklch(0.93 0.03 340);
+  --primary-foreground: oklch(0.2 0.028 330);
+  --secondary: oklch(0.26 0.035 330);
+  --muted: oklch(0.26 0.035 330);
+  --muted-foreground: oklch(0.74 0.06 320);
+  --accent: oklch(0.285 0.04 330);
+  --border: oklch(0.305 0.036 330);
+  --input: oklch(0.33 0.04 330);
+  --terminal: oklch(0.168 0.022 330);
+  --sidebar: oklch(0.178 0.025 330);
+}
+.dark[data-theme='midnight'],
+[data-preview='midnight'] {
+  /* Blue slate. */
+  --background: oklch(0.235 0.025 255);
+  --foreground: oklch(0.9 0.01 250);
+  --card: oklch(0.258 0.027 255);
+  --popover: oklch(0.263 0.027 255);
+  --primary: oklch(0.92 0.01 250);
+  --primary-foreground: oklch(0.22 0.025 255);
+  --secondary: oklch(0.295 0.03 255);
+  --muted: oklch(0.295 0.03 255);
+  --muted-foreground: oklch(0.68 0.03 250);
+  --accent: oklch(0.315 0.032 255);
+  --border: oklch(0.335 0.03 255);
+  --input: oklch(0.36 0.032 255);
+  --terminal: oklch(0.205 0.02 255);
+  --sidebar: oklch(0.215 0.022 255);
+}
+
+/* The conversation's reading column (`max-w-chat`): it fills the pane on every screen. */
+@theme {
+  --container-chat: none;
 }
 
 @theme inline {
@@ -267,7 +396,7 @@
   & :is(p, ul, ol, blockquote) {
     @apply my-2.5;
   }
-  & :is(a, [data-streamdown='link']):not([data-conversation-mention]) {
+  & :is(a, [data-streamdown='link']):not([data-conversation-mention], [data-review-link]) {
     @apply font-normal text-brand underline decoration-brand/40 underline-offset-2 hover:decoration-brand;
   }
   & [data-streamdown='list-item'] {
@@ -316,7 +445,7 @@
  * spacing, across the full card width. Tool output keeps the dense `.markdown` above.
  */
 [role='log'] .markdown:not(.group\/tool .markdown) {
-  font-size: 15px;
+  font-size: var(--prose-size);
   line-height: 1.6;
   letter-spacing: -0.003em;
   font-optical-sizing: auto;
@@ -352,22 +481,22 @@
     letter-spacing: 0;
   }
   & [data-streamdown='code-block-body'] {
-    font-size: 12.5px;
+    font-size: calc(var(--prose-size) - 2.5px);
   }
   & :is([data-streamdown='table-header-cell'], [data-streamdown='table-cell']) {
-    font-size: 13.5px;
+    font-size: calc(var(--prose-size) - 1.5px);
     letter-spacing: 0;
   }
 }
 
 /* Thinking stays a quieter aside, a step below the prose. */
 [role='log'] .group\/reasoning .markdown {
-  font-size: 13.5px;
+  font-size: calc(var(--prose-size) - 1.5px);
 }
 
 /* The user's own turns read at the same size. */
 [role='log'] .is-user > div > p {
-  font-size: 15px;
+  font-size: var(--prose-size);
   line-height: 1.6;
   letter-spacing: -0.003em;
   font-feature-settings: normal;

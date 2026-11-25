@@ -9,26 +9,54 @@
     <meta name="color-scheme" content="dark light" />
     <!-- Home screen: standalone; App.tsx pads the safe area. No black-translucent status bar: under it iOS sizes the
          viewport a status bar short at launch and full later, so the bottom line floated or the page scrolled. -->
-    <link rel="manifest" href="/manifest.webmanifest" />
+    <!-- Named and coloured for the project (server/appearance.ts). -->
+    <link rel="manifest" href="/api/manifest.webmanifest" />
     <link rel="apple-touch-icon" href="/icons/icon-180.png" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-title" content="Ultimate" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black" />
-    <meta name="theme-color" content="#111112" />
+    <meta name="theme-color" content="#1d1e20" />
     <title>Ultimate</title>
     <style>
       html {
         background: oklch(0.985 0.002 270);
       }
       html.dark {
-        background: oklch(0.178 0.003 270);
+        background: oklch(0.235 0.003 270);
+      }
+      html.dark[data-theme='ruby'] {
+        background: oklch(0.207 0.007 10);
+      }
+      html.dark[data-theme='dracula'] {
+        background: oklch(0.288 0.022 277);
+      }
+      html.dark[data-theme='candy'] {
+        background: oklch(0.2 0.028 330);
+      }
+      html.dark[data-theme='midnight'] {
+        background: oklch(0.235 0.025 255);
       }
     </style>
-    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="icon" href="/api/icon.svg?shape=favicon" type="image/svg+xml" />
     <script>
-      if (localStorage.getItem('ultimate.theme') === 'light') {
-        document.documentElement.classList.remove('dark')
-        document.querySelector('meta[name=theme-color]').content = '#f9fafb'
+      // This browser's appearance before the first paint, so nothing flashes (extensions/theme/appearance.tsx).
+      {
+        const root = document.documentElement
+        const look = JSON.parse(localStorage.getItem('ultimate.appearance') ?? '{}')
+        const light = look.system
+          ? !matchMedia('(prefers-color-scheme: dark)').matches
+          : localStorage.getItem('ultimate.theme') === 'light'
+        // Each theme's `bar` in appearance.tsx.
+        const bars = { ruby: '#1b1617', dracula: '#282a36', candy: '#1d111c', midnight: '#161f2a' }
+        if (look.dark) root.dataset.theme = look.dark
+        if (light) root.classList.remove('dark')
+        const bar = light ? '#f9fafb' : bars[look.dark]
+        if (bar) document.querySelector('meta[name=theme-color]').content = bar
+        if (look.accent) {
+          root.dataset.accent = look.accent
+          document.querySelector('link[rel=icon]').href += `&accent=${look.accent}`
+        }
+        if (look.text) root.style.setProperty('--prose-size', `${look.text}px`)
       }
     </script>
   </head>

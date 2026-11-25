@@ -10,7 +10,9 @@ import { RootsDoc } from './refs.ts'
 export {
   Branched,
   CompactAction,
+  EditorAction,
   MemoryDoc,
+  OpenEditorAction,
   RecentAction,
   Rooted,
   RootsDoc,
@@ -59,7 +61,7 @@ export function MemoryChip({
 
 /** The composer's reading column, as the core lays it out; a card in place of a root's composer uses it. */
 export const column = (dock?: boolean) =>
-  dock ? 'w-full px-4' : 'mx-auto w-full max-w-[46rem] px-3 sm:px-6'
+  dock ? 'w-full px-4' : 'mx-auto w-full max-w-chat px-3 sm:px-6'
 
 /** What the Memory surface shows above the memories (`dream` provides its Dream button). */
 export const MemoryHeader = definePoint<null, ReactNode>('lineage.memory-header')

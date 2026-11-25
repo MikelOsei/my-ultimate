@@ -90,6 +90,12 @@ function OutputTail({ output }: { output: string }) {
   )
 }
 
+/** What a landing brought, `<base>...<sha>`, for its review button; nothing for a failure or an empty landing. */
+const landedRange = (outcome: LanderOutcome) =>
+  outcome.outcome === 'landed' && outcome.commits?.length && outcome.base && outcome.sha
+    ? `${outcome.base}...${outcome.sha}`
+    : undefined
+
 const toneOf = (outcome: LanderOutcome): LandingTone =>
   outcome.outcome === 'failed' ? 'failed' : outcome.reason ? 'pushFailed' : 'landed'
 
@@ -106,6 +112,7 @@ export function LanderReport({ entry }: { entry: EntryRecord }) {
         from={outcome.conversationId ?? own}
         sourceEntry={outcome.at}
         divergence={outcome.divergence}
+        review={landedRange(outcome)}
         headline={headline(outcome, outcome.target)}
         subject={outcome.subject}
         tone={toneOf(outcome)}
@@ -330,6 +337,7 @@ export function LanderLogEntry({ entry }: { entry: EntryRecord }) {
           sha={outcome.commits?.length ? outcome.sha : undefined}
           sourceEntry={data.sourceEntry}
           divergence={data.divergence}
+          review={landedRange(outcome)}
           at={
             <time className="shrink-0 text-[11px] text-muted-foreground/60">{time(data.at)}</time>
           }

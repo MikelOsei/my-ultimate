@@ -3,6 +3,7 @@ import { lazy, Suspense } from 'react'
 import { defineWebExtension, provide } from '@/sdk'
 import { Review } from '../workspaces/ui.tsx'
 import { ReviewCard } from './card.tsx'
+import { ReviewChipLink } from './chip.tsx'
 import { openReview, ReviewLink } from './link.tsx'
 import { Frame, Loading } from './parts.tsx'
 
@@ -39,5 +40,6 @@ export default defineWebExtension({
   ],
   slots: { overlay: [ReviewLink] },
   entries: { 'review.comments': ReviewCard },
+  link: ReviewChipLink,
   provides: [provide(Review, (spec) => () => openReview(spec))],
 })

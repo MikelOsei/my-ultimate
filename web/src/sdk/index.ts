@@ -48,10 +48,14 @@ export {
   Dock,
   Header,
   Panels,
+  ResizeHandle,
   Sidebar,
   Slot,
   StatusLine,
 } from '../app/primitives.tsx'
+/** A pane's width kept per browser, for a `ResizeHandle` on its inner edge, bounded as the sidebar's is. */
+export { usePaneWidth } from '../app/widths.ts'
+export { useSurfaceReselect } from '../app/surface.ts'
 /** The title bar's project chip, for an extension that replaces it in `titlebar.project` with a menu. */
 export { ProjectChip, projectTitle, Wordmark } from '../app/titlebar.tsx'
 /** Isolates another extension's component you render, such as a document renderer: it throws into an error card. */
@@ -60,6 +64,8 @@ export { ExtensionBoundary } from '../app/boundary.tsx'
 export { Card } from '../app/card.tsx'
 /** A card that folds to one quiet line in compact mode, and whether one is open; the reader's choice survives reloads. */
 export { Fold, useFold } from '../app/fold.tsx'
+/** A message the reader collapsed to one line in this browser, and that line, which expands it. */
+export { Collapsed, useCollapsed } from '../app/collapse.tsx'
 /** The entries a go-back set aside, which the model's context leaves out. */
 export { setAsideIds } from '../app/compact.ts'
 /** A message's footer as the transcript shows it: details such as usage, time, copy, go back and a reference link. */

@@ -97,7 +97,10 @@ function useOpen() {
   }
 }
 
-/** One event as one quiet line: an icon for its kind, what happened, a link where there is one, and its age. */
+/**
+ * One event as one quiet line: an icon for its kind, what happened, a link where there is one, and its age. In a narrow
+ * panel (the `@container` of `ActivityPanel`) secondary details such as commit counts leave the line.
+ */
 function Row({
   event,
   icon,
@@ -177,15 +180,20 @@ function Landing({ event, now }: Props<typeof SubmissionLanded>) {
       title={`Landed ${landing.sha.slice(0, 7)} on ${landing.target}${landing.title ? ` · ${landing.title}` : ''}`}
       trailing={
         <CommitCount
-          className="text-muted-foreground/80"
+          className="text-muted-foreground/80 @max-[18rem]:hidden"
           count={landing.commitCount}
           href={github ? compareUrl(github, landing.base, landing.sha) : undefined}
           range={`${landing.base}...${landing.sha}`}
         />
       }
     >
-      {landing.feature && <FeatureTag className="shrink-0" feature={landing.feature} />}
-      <span className={name}>{landing.title || landing.sha.slice(0, 7)}</span>
+      {landing.feature && (
+        <FeatureTag className="shrink-0 @max-[18rem]:shrink" feature={landing.feature} />
+      )}
+      {/* Narrow, the feature names the landing; its title stays in the row's tooltip. */}
+      <span className={cn(name, landing.feature && '@max-[18rem]:hidden')}>
+        {landing.title || landing.sha.slice(0, 7)}
+      </span>
     </Row>
   )
 }
@@ -201,7 +209,7 @@ function Branch({ event, now }: Props<typeof Branched>) {
       title={`Branched from #${from}`}
     >
       <ConversationRef className="font-sans text-[12px] text-foreground/85" id={id} />
-      <span className="shrink-0">from #{from}</span>
+      <span className="shrink-0 @max-[18rem]:hidden">from #{from}</span>
     </Row>
   )
 }

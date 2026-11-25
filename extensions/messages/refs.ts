@@ -49,6 +49,8 @@ export type Message = {
   at: number
   reply: boolean
   re?: number
+  /** A reply's other messages it answers too, after `re`: one answer settled them together. */
+  also?: number[]
   state: 'sent' | 'delivered' | 'answered' | 'dismissed' | 'failed' | 'stopped'
   entry?: number
   answer?: number

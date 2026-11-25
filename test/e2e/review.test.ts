@@ -4,6 +4,9 @@ import { parsePatchFiles } from '@pierre/diffs'
 import { beforeAll, describe, expect, it } from 'vitest'
 import { git } from '../../lib/git.ts'
 import { FILE_CAP, reviewDiff } from '../../extensions/review/diff.ts'
+import { actions } from '../../extensions/review/server.ts'
+import type { ActionContext } from '../../server/actions.ts'
+import type { ExtensionHost } from '../../server/extensions.ts'
 import { temp } from '../helpers.ts'
 
 let repo: string
@@ -198,5 +201,82 @@ describe('review diffs of symlinks and multibyte text', () => {
     expect(kept).toBe(21)
     expect(many.files.at(-1)).toMatchObject({ path: 'part-31.txt', tooLarge: true })
     expect(Buffer.byteLength(many.patch)).toBeLessThanOrEqual(8 * 1024 * 1024)
+  })
+})
+
+describe('review of a worktree whose target lags its upstream', () => {
+  let checkout: string
+  let tree: string
+  let fork: string
+  const at = (spec: string) => reviewDiff(checkout, spec, options)
+  const save = async (cwd: string, file: string, message: string) => {
+    await writeFile(join(cwd, file), `${file}\n`)
+    await git(cwd, 'add', '-A')
+    await git(cwd, 'commit', '-q', '-m', message)
+  }
+  beforeAll(async () => {
+    checkout = await temp('ultimate-review-tree-')
+    await git(checkout, 'init', '-q', '-b', 'main')
+    await git(checkout, 'config', 'user.email', 'test@example.com')
+    await git(checkout, 'config', 'user.name', 'Test')
+    await save(checkout, 'a.txt', 'first')
+    // Work merges through pull requests: the upstream moves on while local main keeps a commit of its own.
+    await git(checkout, 'branch', 'upstream')
+    await git(checkout, 'config', 'branch.main.remote', '.')
+    await git(checkout, 'config', 'branch.main.merge', 'refs/heads/upstream')
+    await save(checkout, 'local.txt', 'landed locally only')
+    await git(checkout, 'checkout', '-q', 'upstream')
+    await save(checkout, 'others.txt', 'merged by others')
+    fork = await git(checkout, 'rev-parse', 'HEAD')
+    await git(checkout, 'checkout', '-q', 'main')
+    tree = join(await temp('ultimate-review-tree-wt-'), 'tree')
+    await git(checkout, 'worktree', 'add', '-q', '-b', 'feature', tree, 'upstream')
+    await save(tree, 'feature.txt', 'feature work')
+    await writeFile(join(tree, 'others.txt'), 'edited, not committed\n')
+    await writeFile(join(tree, 'draft.txt'), 'untracked\n')
+  })
+
+  it('shows all the work in a worktree since it forked from the upstream, uncommitted included', async () => {
+    const result = await at(`tree:${tree}/`)
+    expect(result).toMatchObject({
+      kind: 'tree',
+      base: fork,
+      title: expect.stringContaining('upstream...feature'),
+    })
+    expect(result.head).toBeUndefined()
+    expect(result.files.map((file) => [file.status, file.path])).toEqual([
+      ['added', 'feature.txt'],
+      ['modified', 'others.txt'],
+      ['added', 'draft.txt'],
+    ])
+    const branch = await at('branch:feature')
+    expect(branch).toMatchObject({ kind: 'branch', base: fork, title: 'upstream...feature' })
+    expect(branch.files.map((file) => file.path)).toEqual(['feature.txt'])
+  })
+
+  it('refuses a folder that is not a worktree of the repository', async () => {
+    const outside = await temp('ultimate-review-outside-')
+    await expect(at(`tree:${outside}`)).rejects.toThrow('Not a worktree of this repository')
+    await expect(at('tree:relative/path')).rejects.toThrow('Not a worktree of this repository')
+  })
+
+  it("resolves a conversation's link to its worktree's HEAD after it switched branches", async () => {
+    // It happened: an agent checked out a pull request's branch, and the link showed its untouched ultimate/* branch.
+    await git(tree, 'branch', 'ultimate/x-7', fork)
+    const ctx = {
+      host: {
+        need: () => ({ doc: 'workspaces' }),
+        harness: () => ({
+          snapshot: async () => ({
+            items: { 7: { state: 'ready', path: tree, branch: 'ultimate/x-7', target: 'main' } },
+          }),
+        }),
+        eventLog: { recent: async () => [] },
+      } as unknown as ExtensionHost,
+    } as ActionContext
+    expect(await actions.resolve({ conversation: 7 }, ctx)).toEqual({
+      spec: `tree:${tree}`,
+      kind: 'tree',
+    })
   })
 })

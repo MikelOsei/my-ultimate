@@ -5,13 +5,12 @@ import { ArrowUpIcon, SquareIcon } from 'lucide-react'
 import type { ComponentProps } from 'react'
 import { useLayoutEffect, useRef } from 'react'
 import { Button } from '@/components/ui/button'
+import { InsetCard } from '@/components/ui/inset-card'
 
 export const PromptInput = ({ className, ...props }: ComponentProps<'form'>) => (
-  <form
-    className={cn(
-      'flex w-full flex-col rounded-xl border border-input/80 bg-card shadow-sm transition-colors focus-within:border-ring/70',
-      className,
-    )}
+  <InsetCard
+    as="form"
+    className={cn('flex w-full flex-col transition-colors focus-within:border-ring/70', className)}
     {...props}
   />
 )

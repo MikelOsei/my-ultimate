@@ -2,6 +2,8 @@ Commits made through `bash` carry an `Ultimate-Conversation: <id>` trailer via p
 
 Commit attribution needs Git 2.54 or newer: older Git silently ignores config-based hooks.
 
+Set `"codingTools": { "commitTrailer": false }` in the project's `.ultimate/settings.json` (or your `~/.ultimate/settings.json`; the project's wins) for repositories that must not carry the trailer. It is read at each bash call, so it applies to the next one. Only the trailer stops: commits are still recorded as `coding-tools.committed` events, but `git log` no longer names their conversation, so trailer-based attribution (review by conversation, lineage catch-up) misses commits made while it is off.
+
 Each commit made through `bash` is also recorded as the durable event `coding-tools.committed` (`refs.ts`): the conversation, the full sha, its parents, the repository, the linked worktree and branch, the subject, and for an amend or rebase the commit it replaced (`rewrittenFrom`). So the link survives a discarded worktree, a deleted branch or garbage collection. Per bash call, `post-commit`, `post-applypatch` (`git am`, apply-backend rebases), `post-merge` and `post-rewrite` hooks (same `GIT_CONFIG_*` mechanism) append one line each to a temp log unique to that invocation; every hook ends in `|| true`, so it never fails a commit. When the call ends, even with an error or a timeout, the tool reads and removes the log and emits one event per commit the hooks saw being made. A merge counts when it made a merge commit (not a fast-forward or squash); a rewrite only adds `rewrittenFrom` to a commit made in the same call, so a rebase resumed in a later call records each commit once. Cherry-picks, reverts and rebased commits count; commits made during a rebase have no `branch`, since HEAD is detached then.
 
 The events commit on their own right after the bash call, with its trace context, not in the tool result's commit: Pi settles the result after the wrapper returns. A crash between the git commit and that commit loses its event; the trailer remains. Commits made outside an agent's `bash` (the user in a terminal, extensions' own `git` calls such as the lander's merge commit) are not recorded. Find them with `debug {call: 'events', events: ['coding-tools.committed']}` or the System stream's Events filter.
@@ -26,6 +28,11 @@ kills its command and returns the output so far followed by "[Cancelled by the u
 result; the run goes on and the card shows `cancelled`. A restart ends a running call anyway (Pi recovers it as
 interrupted). Calls never remove their own marks, since one can land as a call ends; each cancel drops the marks of
 calls no longer running, and a cancel of a call that is not running fails.
+
+Every image a model request carries (an upload, a forwarded `images` entry, a tool result) is shrunk to the model's
+limits (2000x2000 px, 4.5 MiB) by the same Photon processor `read` uses, in a `beforeRequest` hook, so one oversized
+image cannot fail every turn after it. Only the request changes: the stored entry keeps the original for full-size
+viewing. Each image is prepared once per process, cached by its hash.
 
 Pi's `prepare` hook only changes the command, cwd, and environment, not the timeout, so one wrapper injects the
 default and formats execution timeout errors.

@@ -58,15 +58,20 @@ it('asks for a restart when HEAD changed the core since boot, not for extensions
   expect(await coreChangedSince(cloneSince(['extensions/mcp/server.ts']), 'boot')).toBe(false)
 })
 
-/** The listener with a fake core: `stale` decides, restarts are counted, nothing restarted before. */
-function staleLoad(initial: boolean) {
+/**
+ * The listener with a fake core: `stale` decides, `owed` holds while the lockfile is not installed yet, restarts are
+ * counted, nothing restarted before.
+ */
+function staleLoad(initial: boolean, initiallyOwed = false) {
   let stale = initial
+  let owed = initiallyOwed
   const restarts: number[] = []
   const notices: string[] = []
   const pending: { current?: Promise<void> } = {}
   let last: number | undefined
   const listener = update.restartOnStaleLoad({
     stale: async () => stale,
+    owed: async () => owed,
     restart: async () => {
       restarts.push(1)
       return 'refused'
@@ -81,7 +86,10 @@ function staleLoad(initial: boolean) {
     notices,
     pending,
     settled: () => pending.current,
-    install: () => void (stale = true),
+    install: () => {
+      stale = true
+      owed = false
+    },
   }
 }
 
@@ -120,4 +128,19 @@ it('restarts once when facets still fail after the landing’s install completes
   healthy.install()
   await update.retryStaleLoad(healthy.listener, healthy.pending, () => undefined)
   expect(healthy.restarts).toHaveLength(0)
+})
+
+// The Pi 1.5 landing changed server/ and the lockfile: facets failed, the core was stale, and the host restarted before
+// the landing's install ran, so the new core crashed on the old packages ("harness.observeTaskGraph is not a function").
+it('waits for the landing’s install before restarting a stale core', async () => {
+  const load = staleLoad(true, true)
+  load.listener('coding-tools')
+  await load.settled()
+  expect(load.restarts).toHaveLength(0)
+  expect(load.notices).toEqual([
+    'coding-tools failed to load after a core change; the restart waits for pnpm install',
+  ])
+  load.install()
+  await update.retryStaleLoad(load.listener, load.pending, () => 'coding-tools')
+  expect(load.restarts).toHaveLength(1)
 })

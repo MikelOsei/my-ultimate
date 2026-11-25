@@ -25,12 +25,17 @@ An idle recipient wakes. A busy one receives a follow-up after its current run, 
 to `false` for everyone else; an explicit value always wins. The typed `board.message` input identifies its sender and explains where its answer goes. Its `delivery`
 field records `steer` or `followUp`.
 The answer returns as `board.reply`, steering the sender. An unanswered input produces a failure reply instead.
+One answer is one reply: a run settles all its inputs in one commit, so the first delivery to see the answer finds
+every other reply-enabled message from the same sender whose input that answer settled (by its `board:<id>` request),
+marks them all, and appends one reply with `re` the lowest id and `also` the rest; its text reads `to your messages
+1 and 2`. The other deliveries see their message carry that answer and send nothing.
 Answer directly rather than messaging the sender. A reply-enabled agent message back to a sender whose
-reply-enabled message the agent has received and not answered becomes that answer: in one commit `send()` marks the
-original `answered`, appends the reply (`re`, `reply: false`, its `images`, its `call`) and starts the delivery task
-in its reply phase; its `steer` and `reply` flags are ignored. The original's delivery then sees it answered and keeps
-the final answer local, and the tool returns `Sent as your answer to message N.` with `terminate`, so the run ends
-without restating it. A replayed call finds the reply through the `board.sent` receipt and memo, so it is sent once.
+reply-enabled messages the agent has received and not answered becomes the answer to all of them: in one commit
+`send()` marks each `answered`, appends one reply (`re`, `also`, `reply: false`, its `images`, its `call`) and starts
+the delivery task in its reply phase; its `steer` and `reply` flags are ignored. A message counts as received once it
+is `delivered`, or once its input is placed in the run though its delivery has not recorded that yet. The originals'
+deliveries then see them answered and keep the final answer local, and the tool returns `Sent as your answer to
+message N.` (or `messages N and M.`) with `terminate`, so the run ends without restating it. A replayed call finds the reply through the `board.sent` receipt and memo, so it is sent once.
 `reply: false` updates and other recipients are unaffected. @ultimate's message to `user` is never refused for an
 owed answer: while a user's message it has read is open, the message answers it (marked `answered`, the new one
 names it in `re`, its delivery keeps the final answer local) and, with `questions`, stays open itself, so a
@@ -216,6 +221,7 @@ type Message = {
   at: number // Unix milliseconds
   reply: boolean
   re?: number
+  also?: number[] // a reply's other messages it answers too, after `re`
   state: 'sent' | 'delivered' | 'answered' | 'dismissed' | 'failed' | 'stopped'
   entry?: EntryId
   answer?: EntryId
@@ -228,7 +234,7 @@ type Message = {
 ```
 
 `board.message` data: `{ id, from, text, reply, delivery: 'steer' | 'followUp' | 'note', images?, remote? }`, where `images` counts the forwarded images in its model content; the card shows them as thumbnails.
-`board.reply` data: `{ id, re, from, text, failed, stopped?, images? }` (`stopped` also sets `failed`: neither is an answer); a reply that a `message` became carries its images like a message does. A reply has its own id and `re` points to the original message.
+`board.reply` data: `{ id, re, also?, from, text, failed, stopped?, images? }` (`stopped` also sets `failed`: neither is an answer); a reply that a `message` became carries its images like a message does. A reply has its own id and `re` points to the original message.
 The reply's `answer` links to the recipient's assistant entry; the original also stores its input `entry`.
 
 ## Actions

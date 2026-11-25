@@ -17,7 +17,7 @@ export function Tag({ children, className }: { children: ReactNode; className?: 
 
 export function Heading({ children, meta }: { children: ReactNode; meta: ReactNode }) {
   return (
-    <div className="flex items-center gap-2 px-3 pb-2 section-label">
+    <div className="flex flex-wrap items-center gap-x-2 gap-y-1 px-3 pb-2 section-label">
       {children}
       <span className="ml-auto flex items-center gap-2 text-muted-foreground/70">{meta}</span>
     </div>

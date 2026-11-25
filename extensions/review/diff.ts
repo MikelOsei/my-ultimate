@@ -1,6 +1,7 @@
 /** Local Git diffs for review: a spec's two sides, its patch split per file with counts and status, capped in size. */
-import { lstat, readlink } from 'node:fs/promises'
-import { join } from 'node:path'
+import { lstat, readlink, realpath } from 'node:fs/promises'
+import { homedir } from 'node:os'
+import { isAbsolute, join, resolve, sep } from 'node:path'
 import { exec } from '../../lib/exec.ts'
 import { git } from '../../lib/git.ts'
 import type { ReviewDiff, ReviewFile, ReviewKind } from './refs.ts'
@@ -16,8 +17,8 @@ const DIFF = ['--no-color', '--no-ext-diff', '-M', '--src-prefix=a/', '--dst-pre
 
 type Sides = { kind: ReviewKind; title: string; base: string; head?: string }
 type Options = {
-  /** The branch `branch:<name>` is compared against: where it lands. */
-  target: (branch: string) => Promise<string>
+  /** Where `branch` lands, which `branch:<name>` is compared against; a `tree:` passes its worktree's folder too. */
+  target: (branch: string, tree?: string) => Promise<string>
   signal?: AbortSignal
 }
 
@@ -47,8 +48,115 @@ async function commit(cwd: string, ref: string, signal?: AbortSignal) {
 /** The empty tree's id in this repository's hash, the base of a root commit. */
 const emptyTree = (cwd: string) => git(cwd, 'hash-object', '-t', 'tree', '/dev/null')
 
+/** The folder a `tree:<folder>` spec names, `~/` expanded, else undefined. */
+export function treePath(spec: string) {
+  if (!spec.startsWith('tree:')) return undefined
+  const path = spec
+    .slice('tree:'.length)
+    .trim()
+    .replace(/^~(?=\/|$)/, homedir())
+  return isAbsolute(path) ? resolve(path) : undefined
+}
+
+/** The `tree:<folder>` spec of `path`, with the home folder written `~`. */
+export const treeSpec = (path: string) =>
+  `tree:${path === homedir() || path.startsWith(homedir() + sep) ? `~${path.slice(homedir().length)}` : path}`
+
+/** A worktree of a repository: its folder, and its branch unless its HEAD is detached. */
+export type Worktree = { path: string; branch?: string }
+
+/** The worktrees of the repository holding `cwd`, its main one first; bare and prunable (missing) ones left out. */
+export async function worktrees(cwd: string, signal?: AbortSignal): Promise<Worktree[]> {
+  const list = await git({ cwd, signal }, 'worktree', 'list', '--porcelain')
+  return list.split('\n\n').flatMap((block) => {
+    const fields = new Map(
+      block.split('\n').map((line) => [line.split(' ', 1)[0], line.slice(line.indexOf(' ') + 1)]),
+    )
+    const path = fields.get('worktree')
+    if (!path || fields.has('bare') || fields.has('prunable')) return []
+    const branch = fields.get('branch')?.replace(/^refs\/heads\//, '')
+    return [{ path, ...(branch && { branch }) }]
+  })
+}
+
+/**
+ * The worktree of `cwd`'s repository that the `tree:<folder>` spec names, the folder being it or inside it; throws for
+ * any other folder, so Git runs only in the repository's own worktrees.
+ */
+export async function treeOf(cwd: string, spec: string, signal?: AbortSignal) {
+  const path = treePath(spec)
+  const real =
+    path &&
+    (await realpath(path).catch(
+      // A folder that is gone names no worktree: refused below.
+      () => undefined,
+    ))
+  let found: Worktree | undefined
+  if (real) {
+    for (const tree of await worktrees(cwd, signal)) {
+      const top = await realpath(tree.path).catch(
+        // Removed since Git listed it: it holds nothing.
+        () => undefined,
+      )
+      // The innermost one: a worktree may sit inside another's folder.
+      if (
+        top &&
+        (real === top || real.startsWith(top + sep)) &&
+        top.length > (found?.path.length ?? 0)
+      )
+        found = { ...tree, path: top }
+    }
+  }
+  if (found) return found
+  throw new Error(`Not a worktree of this repository: ${spec.slice('tree:'.length).trim()}`)
+}
+
+/**
+ * Where `head` forked from `target`: its merge base with the target, or with the target's upstream when that one is
+ * newer, as when the local target lags far behind `origin` because work lands there through pull requests.
+ */
+export async function forkPoint(cwd: string, target: string, head: string, signal?: AbortSignal) {
+  const local = await git({ cwd, signal }, 'merge-base', await commit(cwd, target, signal), head)
+  const upstream = await git(
+    { cwd, signal },
+    'rev-parse',
+    '--abbrev-ref',
+    `${target}@{upstream}`,
+  ).catch(
+    // No upstream: the local target is all there is.
+    () => '',
+  )
+  const remote =
+    upstream &&
+    (await git({ cwd, signal }, 'merge-base', upstream, head).catch(
+      // Unrelated histories share no base: the local target's stands.
+      () => '',
+    ))
+  if (!remote || remote === local) return { base: local, from: target }
+  const newer = await git({ cwd, signal }, 'merge-base', '--is-ancestor', local, remote).then(
+    () => true,
+    // Exit 1: the local base is not behind the upstream's, so it is the nearer one.
+    () => false,
+  )
+  return newer ? { base: remote, from: upstream } : { base: local, from: target }
+}
+
 async function sides(cwd: string, spec: string, options: Options): Promise<Sides> {
   const { signal } = options
+  if (spec.startsWith('tree:')) {
+    const branch = await git({ cwd, signal }, 'symbolic-ref', '--quiet', '--short', 'HEAD').catch(
+      // A detached HEAD: the work is named by its commit.
+      () => '',
+    )
+    const head = await commit(cwd, 'HEAD', signal)
+    const target = plain(await options.target(branch, cwd), spec)
+    const { base, from } = await forkPoint(cwd, target, head, signal)
+    return {
+      kind: 'tree',
+      title: `${from}...${branch || head.slice(0, 7)}, uncommitted included`,
+      base,
+    }
+  }
   if (spec === 'uncommitted') {
     const head = await commit(cwd, 'HEAD', signal).catch(
       // No commit yet: everything is new against the empty tree.
@@ -64,8 +172,8 @@ async function sides(cwd: string, spec: string, options: Options): Promise<Sides
     const branch = plain(spec.slice('branch:'.length), spec)
     const target = plain(await options.target(branch), spec)
     const head = await commit(cwd, branch, signal)
-    const base = await git({ cwd, signal }, 'merge-base', await commit(cwd, target, signal), head)
-    return { kind: 'branch', title: `${target}...${branch}`, base, head }
+    const { base, from } = await forkPoint(cwd, target, head, signal)
+    return { kind: 'branch', title: `${from}...${branch}`, base, head }
   }
   if (spec.includes('...')) {
     const parts = spec.split('...')
@@ -261,10 +369,12 @@ async function untracked(top: string, signal?: AbortSignal) {
 /** The diff `spec` names in the repository holding `cwd`; see `ReviewKind` for the specs. */
 export async function reviewDiff(cwd: string, spec: string, options: Options): Promise<ReviewDiff> {
   if (typeof spec !== 'string' || !spec.trim()) throw new Error('Expected a spec')
-  const top = await git({ cwd, signal: options.signal }, 'rev-parse', '--show-toplevel')
+  const top = spec.trim().startsWith('tree:')
+    ? (await treeOf(cwd, spec.trim(), options.signal)).path
+    : await git({ cwd, signal: options.signal }, 'rev-parse', '--show-toplevel')
   const side = await sides(top, spec.trim(), options)
   const changes = await tracked(top, side.base, side.head, options.signal)
-  if (side.kind === 'uncommitted') {
+  if (side.kind === 'uncommitted' || side.kind === 'tree') {
     const extra = await untracked(top, options.signal)
     changes.files.push(...extra.files)
     changes.patches.push(...extra.patches)

@@ -42,7 +42,16 @@ import { Branch, Branched, LineageApi, Rooted, Roots } from './api.ts'
 import { ConversationsApi, Trees } from '../conversations/api.ts'
 import { Standing, Started } from '../subagents/api.ts'
 import { spawn } from 'node:child_process'
-import { CompactAction, ForgetAction, OpenEditorAction, RecentAction, TallyDoc } from './refs.ts'
+import { readFile } from 'node:fs/promises'
+import { basename, resolve as resolvePath, sep } from 'node:path'
+import {
+  CompactAction,
+  EditorAction,
+  ForgetAction,
+  OpenEditorAction,
+  RecentAction,
+  TallyDoc,
+} from './refs.ts'
 import {
   applyMemoryOps,
   BODY_CHARS,
@@ -64,6 +73,7 @@ import { compareUrl } from '../../lib/compare.ts'
 import { hasLogin, hostDefaultModel } from '../../lib/agents.ts'
 import { admitCompaction } from '../../lib/compaction.ts'
 import { githubRepo } from '../../lib/project-identity.ts'
+import { readSettings, userSettingsPath } from '../../lib/settings.ts'
 
 export type BranchImage = { data: string; mimeType: string }
 
@@ -103,16 +113,83 @@ export const docs = [Roots, Branch, Tally, Seen, Memory]
 /** Going back sets a conversation's path aside, and forgetting drops a memory: only the user decides those. */
 export const userActions = ['rewind', 'forget', 'compact', 'openEditor']
 
-/** Starts `editor` on `folder`, detached, once it has spawned; rejects when it is not on PATH. */
-const launch = (editor: string, folder: string) =>
+/** What "Open in …" buttons call the editor commands people set most. */
+const editorLabels: Record<string, string> = {
+  code: 'VS Code',
+  cursor: 'Cursor',
+  zed: 'Zed',
+  zeditor: 'Zed',
+}
+
+/** `editor` in this machine's settings: the command every "Open in …" button runs; undefined means Zed. */
+async function editorSetting(host: ExtensionHost) {
+  const value = (await readSettings(userSettingsPath(host.userHome))).editor
+  if (value === undefined) return undefined
+  if (typeof value !== 'string' || !value.trim())
+    throw new Error('"editor" in ~/.ultimate/settings.json must be a command, such as "code"')
+  return value.trim()
+}
+
+/** Editors that open a file at a line with `-g file:line`; others (Zed) take `file:line` as it is. */
+const gotoFlag = new Set(['code', 'code-insiders', 'codium', 'cursor', 'windsurf'])
+
+/**
+ * Starts `editor` on `folder`, and on `at` (`file:line` inside it) when given, detached, once it has spawned; rejects
+ * when it is not on PATH.
+ */
+const launch = (editor: string, folder: string, at?: string) =>
   new Promise<void>((resolve, reject) => {
-    const child = spawn(editor, [folder], { detached: true, stdio: 'ignore' })
+    const args = at ? [folder, ...(gotoFlag.has(basename(editor)) ? ['-g'] : []), at] : [folder]
+    const child = spawn(editor, args, { detached: true, stdio: 'ignore' })
     child.once('error', reject)
     child.once('spawn', () => {
       child.unref()
       resolve()
     })
   })
+
+/**
+ * Opens `folder` in the `editor` setting's command, without it Zed (`zeditor`, Arch's name, else `zed`), and `file`
+ * (relative, inside `folder`) at `line` clamped to its length when given. Throws when `file` leads out of `folder` or
+ * is not there, and when no editor is on PATH.
+ */
+export async function openEditor(
+  host: ExtensionHost,
+  folder: string,
+  file?: unknown,
+  lineNumber?: unknown,
+) {
+  let at: string | undefined
+  if (file !== undefined) {
+    const path = typeof file === 'string' ? resolvePath(folder, file) : ''
+    if (!path.startsWith(folder + sep)) throw new Error('file must be a path inside the folder')
+    if (
+      lineNumber !== undefined &&
+      !(typeof lineNumber === 'number' && Number.isSafeInteger(lineNumber) && lineNumber > 0)
+    )
+      throw new Error('line must be a positive line number')
+    // The file may have changed since the diff that names the line: clamp it to the file as it is now.
+    const text = await readFile(path, 'utf8').catch((error: NodeJS.ErrnoException) => {
+      throw error.code === 'ENOENT' ? new Error('File no longer exists') : error
+    })
+    const lines = Math.max(1, text.split('\n').length - (text.endsWith('\n') ? 1 : 0))
+    at = lineNumber === undefined ? path : `${path}:${Math.min(lineNumber, lines)}`
+  }
+  const setting = await editorSetting(host)
+  for (const editor of setting ? [setting] : ['zeditor', 'zed'])
+    try {
+      await launch(editor, folder, at)
+      return { editor }
+    } catch (error) {
+      // Not on PATH: try the next name; anything else is a real failure.
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+    }
+  throw new Error(
+    setting
+      ? `${setting} is not on PATH on this machine (the "editor" setting)`
+      : 'Zed is not installed on this machine (no zeditor or zed on PATH); set "editor" in ~/.ultimate/settings.json, such as "code"',
+  )
+}
 
 const ASK_TOKENS = 8192
 
@@ -1214,17 +1291,26 @@ export const actions = {
     }, context)
     return { roots }
   },
-  /** Open the project folder in Zed on this machine: `zeditor` (Arch's name), else `zed`. User-only. */
-  openEditor: implementAction(OpenEditorAction, async (_args, { host }) => {
-    for (const editor of ['zeditor', 'zed'])
-      try {
-        await launch(editor, host.projectRoot)
-        return { editor }
-      } catch (error) {
-        // Not on PATH: try the next name; anything else is a real failure.
-        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
-      }
-    throw new Error('Zed is not installed on this machine (no zeditor or zed on PATH)')
+  /** The editor "Open in …" buttons use: the `editor` setting, else Zed. */
+  editor: implementAction(EditorAction, async (_args, { host }) => {
+    const command = (await editorSetting(host)) ?? 'zed'
+    return { command, label: editorLabels[command] ?? command }
+  }),
+  /**
+   * Open the project folder, or conversation `id`'s worktree, in the `editor` setting's command on this machine;
+   * without it Zed: `zeditor` (Arch's name), else `zed`. `file` (relative, inside that folder) opens at `line`.
+   * User-only.
+   */
+  openEditor: implementAction(OpenEditorAction, async (args, { host }) => {
+    const given = args && typeof args === 'object' && !Array.isArray(args) ? args : {}
+    let folder = host.projectRoot
+    if (given.id !== undefined) {
+      const id = conversationArg(given)
+      const workspace = await host.need(WorkspacesApi).get(id, context)
+      if (workspace?.state !== 'ready') throw new Error(`#${id} has no worktree to open`)
+      folder = workspace.path
+    }
+    return openEditor(host, folder, given.file, given.line)
   }),
   /** `{root, slug}`: delete one memory of root `root`. User-only. */
   forget: implementAction(ForgetAction, async (args, { host }) => {
@@ -1290,6 +1376,7 @@ export default function lineageExtension(host: ExtensionHost) {
     branch: (input, ctx) => startBranch(host, input, ctx),
     rootOf: (id, ctx) => rootOf(host, id, ctx),
     leaveNote: (to, text, source) => leaveNote(host, to, text, source),
+    openEditor: (folder, file, at) => openEditor(host, folder, file, at),
     remember: (root, ops, ctx, now) =>
       host.harness().commit((tx) => applyMemoryOps(tx, root, ops, now), ctx),
     memoryBrief: async (id, ctx) => {

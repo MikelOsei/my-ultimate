@@ -2,9 +2,11 @@ import './index.css'
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { App } from './app/App.tsx'
+import { loadWidths } from './app/widths.ts'
 import { loadExtensions } from './extensions.ts'
 import { store } from './sdk/client.ts'
 
+loadWidths()
 store.start()
 // A file dropped anywhere on the page would make the browser navigate to it, replacing the shell; a handler that takes
 // drops still gets them, since cancelling the default does not stop the event.

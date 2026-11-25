@@ -287,11 +287,14 @@ function PhasedRow({
 export function RowMenu({
   conversation,
   concluded,
+  review,
   onRename,
   onConclude,
 }: {
   conversation: ConversationSummary
   concluded: boolean
+  /** The spec Review changes opens, where the row knows better than its branch: its uncommitted edits. */
+  review?: string
   onRename: () => void
   onConclude: (conclude: boolean) => void
 }) {
@@ -331,21 +334,31 @@ export function RowMenu({
             Workspace details
           </DropdownMenuItem>
         )}
-        {conversation.workspace && conversation.workspace.state !== 'removed' && (
-          <Provided input={`branch:${conversation.workspace.branch}`} point={Review}>
-            {(open) =>
-              open && (
-                <DropdownMenuItem
-                  className="cursor-pointer text-[12.5px]"
-                  onSelect={() => (afterMenu.current = open)}
-                >
-                  <FileDiffIcon />
-                  Review changes
-                </DropdownMenuItem>
-              )
-            }
-          </Provided>
-        )}
+        {conversation.workspace &&
+          (conversation.workspace.state !== 'removed' || conversation.workspace.landed) && (
+            <Provided
+              input={
+                review ??
+                (conversation.workspace.state === 'removed'
+                  ? // Its worktree is gone: what it landed last.
+                    `conversation:${conversation.id}`
+                  : `branch:${conversation.workspace.branch}`)
+              }
+              point={Review}
+            >
+              {(open) =>
+                open && (
+                  <DropdownMenuItem
+                    className="cursor-pointer text-[12.5px]"
+                    onSelect={() => (afterMenu.current = open)}
+                  >
+                    <FileDiffIcon />
+                    Review changes
+                  </DropdownMenuItem>
+                )
+              }
+            </Provided>
+          )}
         <DropdownMenuItem className="text-[12.5px]" onSelect={() => (afterMenu.current = onRename)}>
           <PencilIcon />
           Rename

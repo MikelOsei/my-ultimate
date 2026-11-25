@@ -229,6 +229,7 @@ function PhasedFlightRow({
               concluded={false}
               conversation={conversation}
               onConclude={onConclude}
+              review={work?.edits?.spec}
               onRename={() => {
                 cancelled.current = false
                 setEditing(true)

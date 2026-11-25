@@ -11,6 +11,7 @@ import { compareUrl } from '../../lib/compare.ts'
 import { exec } from '../../lib/exec.ts'
 import { fastForward, Refusal } from '../../lib/fast-forward.ts'
 import type { Git } from '../../lib/fast-forward.ts'
+import { installOwed } from '../../lib/packages.ts'
 import { githubRepo } from '../../lib/project-identity.ts'
 import { ConversationsApi } from '../conversations/api.ts'
 import { SubagentsApi } from '../subagents/api.ts'
@@ -46,18 +47,6 @@ export const gitIn =
     }
   }
 
-const read = (path: string) =>
-  readFile(path, 'utf8').catch(
-    // A missing lockfile or install reads as absent: no clone of Ultimate lacks both.
-    () => undefined,
-  )
-
-/** Whether `pnpm-lock.yaml` differs from what pnpm last installed (`node_modules/.pnpm/lock.yaml`). */
-export async function installOwed(root: string) {
-  const wanted = await read(join(root, 'pnpm-lock.yaml'))
-  return wanted !== undefined && wanted !== (await read(join(root, 'node_modules/.pnpm/lock.yaml')))
-}
-
 /** Whether packages were installed after `startedAt` (ms): this server still runs the ones before. */
 const installedSince = (root: string, startedAt: number) =>
   stat(join(root, 'node_modules/.pnpm/lock.yaml')).then(
@@ -86,21 +75,28 @@ export const AUTO_RESTART_PAUSE = 10 * 60_000
  * since boot), the facet most likely needs the new core, so it restarts the host at once, busy agents included: their
  * work resumes in the new process. A failure while the core is current is a real bug and stays a load error. Facets
  * failing in one reload join the first one's check, so they cause one restart; `last` (ms) keeps restarts apart.
+ * While an install is `owed` it waits: a new core on the old packages crashes, and the landing's install checks again
+ * once it is done (`retryStaleLoad`).
  */
 export function restartOnStaleLoad(options: {
   stale: () => Promise<boolean>
+  owed: () => Promise<boolean>
   restart: () => Promise<string>
   notice: (message: string) => void
   last: { read: () => Promise<number | undefined>; write: (at: number) => Promise<void> }
   pending: { current?: Promise<void> }
   now?: () => number
 }) {
-  const { stale, restart, notice, last, pending, now = Date.now } = options
+  const { stale, owed, restart, notice, last, pending, now = Date.now } = options
   return (name: string) => {
     pending.current ??= (async () => {
       const at = await last.read()
       if (at !== undefined && now() - at < AUTO_RESTART_PAUSE) return
       if (!(await stale())) return
+      if (await owed()) {
+        notice(`${name} failed to load after a core change; the restart waits for pnpm install`)
+        return
+      }
       await last.write(now())
       notice(`Restarting: ${name} failed to load after a core change`)
       notice(`Automatic restart failed: ${await restart()}`)
@@ -194,6 +190,7 @@ export default function update(host: ExtensionHost) {
     stale: async () =>
       (await installedSince(host.ultimateRoot, Date.parse(host.system().process.startedAt))) ||
       (await coreChangedSince(gitIn(host.ultimateRoot), await boot(host).head)),
+    owed: () => installOwed(host.ultimateRoot),
     // A successful restart never returns: this process is released and the new core resumes its work.
     restart: () => host.restart(async () => {}),
     notice: (message) => host.notice(message),

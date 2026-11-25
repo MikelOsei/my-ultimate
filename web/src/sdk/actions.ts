@@ -1,4 +1,4 @@
-import { registry, replaceNextSelection, store, uiState } from './client.ts'
+import { api, registry, replaceNextSelection, store, uiState } from './client.ts'
 import { errorMessage } from './format.ts'
 import {
   HOME,
@@ -105,6 +105,22 @@ function closeOverlays() {
     if (overlays(region) && regionOpen(region)) setRegionOpen(region, false)
 }
 
+const reselected = new Set<(id: string) => void>()
+/** Calls `listener` with the surface's id each time the user picks the surface already on screen. */
+export function onSurfaceReselect(listener: (id: string) => void) {
+  reselected.add(listener)
+  return () => {
+    reselected.delete(listener)
+  }
+}
+
+/** The user picked surface `id` (its tab, the switcher, `mod+1…9`): show it, and tell it when it already was. */
+export function pickSurface(id: string) {
+  const again = store.getState().ui.surface?.id === id
+  actions.showSurface(id)
+  if (again) for (const listener of reselected) listener(id)
+}
+
 export const actions: UltimateActions = {
   switchConversation: (id, options) => {
     closeOverlays()
@@ -116,6 +132,8 @@ export const actions: UltimateActions = {
     uiState.set(shellKeys.surface, id)
   },
   openPanel: (id) => {
+    // Only some surfaces render the panels (Agent does): from any other, go to Agent to show it.
+    if (!layout.has('panels')) actions.showSurface(HOME)
     setRegionOpen('panels', true)
     if (id) uiState.set(shellKeys.panel, id)
   },
@@ -137,6 +155,9 @@ export const actions: UltimateActions = {
       )
       ?.focus(),
   setTheme: (theme) => store.setUi({ theme }),
+  setAppearance: async (change) => {
+    await api.setAppearance(change)
+  },
 }
 
 /** Run command `id` in `context`, reporting a failure as a notice; shortcuts pass the context of where they were typed. */
@@ -213,7 +234,7 @@ export function allCommands(records = registry.getSnapshot()): CommandItem[] {
       keys: index < 9 ? `mod+${index + 1}` : undefined,
       group: 'Surfaces',
       extension: surface.extension,
-      run: () => actions.showSurface(surface.id),
+      run: () => pickSurface(surface.id),
     })),
   ])
 }

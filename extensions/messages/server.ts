@@ -27,6 +27,7 @@ import { parentOf, Started, starterOf } from './addresses.ts'
 import { delivery } from './delivery.ts'
 import { notice } from './notice.ts'
 import { send } from './send.ts'
+import { answered } from './log.ts'
 import type { Device } from '../../shared/events.ts'
 import type { Context } from '@earendil-works/chord'
 import { route, working } from './route.ts'
@@ -298,7 +299,7 @@ export default function messages(host: ExtensionHost) {
               output: [
                 {
                   type: 'text',
-                  text: `Sent as your answer to message ${sent.re}.`,
+                  text: `Sent as your answer to ${answered(sent)}.`,
                 },
               ],
               control: { terminate: true as const },

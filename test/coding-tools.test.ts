@@ -1,12 +1,17 @@
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { crc32, deflateSync } from 'node:zlib'
 import { createBashTool } from '@earendil-works/pi-durable/tools'
 import { NodeExecutionEnv } from '@earendil-works/pi-durable/env/node'
-import type { ToolExecutionApi } from '@earendil-works/pi-durable'
+import type { ConversationId, ToolExecutionApi } from '@earendil-works/pi-durable'
+import type { ImageContent, UserMessage } from '@earendil-works/pi-ai'
 import { afterEach, expect, it, vi } from 'vitest'
-import codingTools from '../extensions/coding-tools/server.ts'
+import codingTools, {
+  commitTrailer,
+  fitImages,
+  prepareBash,
+} from '../extensions/coding-tools/server.ts'
 import { context } from '../server/harness.ts'
 import type { ExtensionHost } from '../server/extensions.ts'
 
@@ -19,6 +24,8 @@ it('uses a 600-second default tripwire and leaves explicit timeouts unchanged', 
     .mockRejectedValue(new Error('Command timed out after 600 seconds'))
   const wrapper = codingTools({
     emit: vi.fn<ExtensionHost['emit']>() as ExtensionHost['emit'],
+    projectRoot: tmpdir(),
+    userHome: tmpdir(),
   }).wraps!.find((wrap) => 'tool' in wrap && wrap.tool === 'bash')!
   if (!('tool' in wrapper)) throw new Error('Missing bash wrapper')
   const bash = wrapper.wrap({ ...createBashTool(), execute })
@@ -62,12 +69,72 @@ function png(width: number, height: number) {
   ])
 }
 
+it('shrinks an uploaded image past the 2000 px limit in the request, keeping the stored original', async () => {
+  // The bug: a 3000 px upload failed every request on Anthropic's image size limit.
+  const upload = (data: string): UserMessage => ({
+    role: 'user',
+    content: [
+      { type: 'text', text: 'look' },
+      { type: 'image', data, mimeType: 'image/png' },
+    ],
+    timestamp: 0,
+  })
+  const original = png(3000, 30).toString('base64')
+  const messages = [upload(original)]
+  const sent = (await fitImages(messages))![0].content[1] as ImageContent
+  expect(sent).toMatchObject({ type: 'image', mimeType: 'image/png' })
+  const header = Buffer.from(sent.data, 'base64')
+  expect([header.readUInt32BE(16), header.readUInt32BE(20)]).toEqual([2000, 20])
+  expect(messages[0].content[1]).toMatchObject({ data: original })
+  // One that fits goes as it is.
+  expect(await fitImages([upload(png(100, 10).toString('base64'))])).toBeUndefined()
+})
+
+it('skips the commit trailer hook when codingTools.commitTrailer is false, project over user', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'ultimate-trailer-'))
+  try {
+    const projectRoot = join(dir, 'project')
+    const userHome = join(dir, 'home')
+    const settings = async (root: string, value: boolean) => {
+      await mkdir(join(root, '.ultimate'), { recursive: true })
+      await writeFile(
+        join(root, '.ultimate/settings.json'),
+        JSON.stringify({ codingTools: { commitTrailer: value } }),
+      )
+    }
+    expect(await commitTrailer({ projectRoot, userHome })).toBe(true)
+    await settings(userHome, false)
+    expect(await commitTrailer({ projectRoot, userHome })).toBe(false)
+    await settings(projectRoot, true)
+    expect(await commitTrailer({ projectRoot, userHome })).toBe(true)
+
+    vi.stubEnv('GIT_CONFIG_COUNT', '0')
+    const events = (trailer: boolean) => {
+      const execution = {
+        command: '',
+        cwd: dir,
+        env: {} as Record<string, string>,
+        inheritEnv: true,
+      }
+      prepareBash(execution, { conversationId: 7 as ConversationId }, { trailer })
+      return Object.values(execution.env)
+    }
+    expect(events(true)).toContain('prepare-commit-msg')
+    expect(events(false)).not.toContain('prepare-commit-msg')
+    expect(events(false)).toContain('post-commit')
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
 it('reads an image past the 2000 px limit shrunk to fit, keeping its aspect ratio', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'ultimate-read-'))
   try {
     await writeFile(join(dir, 'wide.png'), png(3000, 30))
     const read = codingTools({
       emit: vi.fn<ExtensionHost['emit']>() as ExtensionHost['emit'],
+      projectRoot: dir,
+      userHome: dir,
     }).tools!.find((tool) => tool.name === 'read')!
     const api = {
       env: new NodeExecutionEnv({ cwd: dir }),

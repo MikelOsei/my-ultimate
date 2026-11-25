@@ -71,7 +71,7 @@ export function AgentsOverview() {
   }
 
   return (
-    <div className="py-2" data-agents-overview>
+    <div className="@container py-2" data-agents-overview>
       <Heading
         meta={
           <>
@@ -334,10 +334,15 @@ function Row({
     <>
       <div className="flex min-w-0 items-center gap-1.5 font-mono text-[11.5px]">
         <Icon className="size-3 shrink-0 text-muted-foreground/70" />
-        <span className="shrink-0 text-foreground/85">{label}</span>
-        {tags}
+        <span className="min-w-0 shrink-0 truncate text-foreground/85 @max-[17rem]:shrink">
+          {label}
+        </span>
+        {/* A narrow panel keeps the name rather than its tags and model. */}
+        {tags && <span className="contents @max-[17rem]:hidden">{tags}</span>}
         {meta && (
-          <span className="min-w-0 truncate text-[10.5px] text-muted-foreground/70">{meta}</span>
+          <span className="min-w-0 truncate text-[10.5px] text-muted-foreground/70 @max-[17rem]:hidden">
+            {meta}
+          </span>
         )}
       </div>
       <p className="line-clamp-1 pl-4.5 font-sans text-[11.5px] leading-snug text-muted-foreground/80">

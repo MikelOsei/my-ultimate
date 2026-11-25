@@ -7,14 +7,14 @@ import {
   defineTask,
   ROOT_CONVERSATION_ID,
 } from '@earendil-works/pi-durable'
-import type { ConversationId } from '@earendil-works/pi-durable'
+import type { ConversationId, EntryId } from '@earendil-works/pi-durable'
 import type { ExtensionHost } from '../../server/extensions.ts'
 import { Standing, SubagentsApi } from '../subagents/api.ts'
 import { locate, postAction } from '../../lib/remote.ts'
 import { Messages } from './api.ts'
 import type { Message } from './api.ts'
 import { imagesOf } from '../../lib/entries.ts'
-import { append, terminal } from './log.ts'
+import { answered, append, terminal } from './log.ts'
 import { remoteLabel } from './addresses.ts'
 
 export function delivery(host: ExtensionHost) {
@@ -159,15 +159,34 @@ export function delivery(host: ExtensionHost) {
         await runtime.commit(async (tx) => {
           const answer =
             settled.status === 'done' && settled.type === 'input' ? settled.answer : undefined
-          const original = (await tx.doc(Messages, ROOT_CONVERSATION_ID)).messages.find(
-            (item) => item.id === m.id,
-          )
+          const log = await tx.doc(Messages, ROOT_CONVERSATION_ID)
+          const original = log.messages.find((item) => item.id === m.id)
           if (!m.reply) {
             if (original && answer !== undefined) original.answer = answer
             return terminal
           }
-          // The recipient answered with a message; its final answer stays where it is.
-          if (original?.state === 'answered') return terminal
+          // The recipient answered with a message, or another delivery's reply names this message already. The reply
+          // is newer than the message, so it stays in the capped log when the message itself is dropped.
+          if (
+            original?.state === 'answered' ||
+            log.messages.some(
+              (r) =>
+                r.from === m.to && r.to === m.from && (r.re === m.id || r.also?.includes(m.id)),
+            )
+          )
+            return terminal
+          // The run's inputs all settle in one commit, so the first delivery to get here finds every message from this
+          // sender that the same answer settled, and its one reply answers them all.
+          const together: { message: Message; entry: EntryId }[] = []
+          if (answer !== undefined && m.from !== 'remote')
+            for (const item of log.messages) {
+              if (item.id === m.id || item.from !== m.from || item.to !== m.to || !item.reply)
+                continue
+              if (item.state !== 'sent' && item.state !== 'delivered') continue
+              const input = await tx.submissionByRequest(m.to as ConversationId, `board:${item.id}`)
+              if (input?.type === 'input' && input.status === 'done' && input.answer === answer)
+                together.push({ message: item, entry: input.entry })
+            }
           const model =
             answer === undefined ? undefined : (await tx.entry(AssistantEntry, answer))?.model?.[0]
           const text =
@@ -190,18 +209,26 @@ export function delivery(host: ExtensionHost) {
               ? `ended its turn without an answer (${settled.status === 'unanswered' ? settled.reason : settled.status})`
               : undefined
           const state = stopped ? 'stopped' : failed ? 'failed' : undefined
-          if (original) {
-            original.state = state ?? 'answered'
-            if (answer !== undefined) original.answer = answer
-            if (error !== undefined) original.error = error
-            if ('entry' in settled && settled.entry !== undefined) original.entry = settled.entry
+          const settles = [
+            ...(original ? [{ message: original, entry: settled.entry }] : []),
+            ...together,
+          ]
+          for (const { message, entry: placed } of settles) {
+            message.state = state ?? 'answered'
+            if (answer !== undefined) message.answer = answer
+            if (error !== undefined) message.error = error
+            if (placed !== undefined) message.entry = placed
           }
+          const [re, ...also] = [m.id, ...together.map(({ message }) => message.id)].toSorted(
+            (a, b) => a - b,
+          )
           const response = await append(tx, {
             from: m.to,
             to: m.from,
             text: error ?? text,
             reply: false,
-            re: m.id,
+            re,
+            ...(also.length ? { also } : {}),
             state: state ?? 'sent',
             ...(answer ? { answer } : {}),
             ...(error ? { error } : {}),
@@ -272,6 +299,7 @@ export function delivery(host: ExtensionHost) {
             data: {
               id: m.id,
               re: m.re!,
+              ...(m.also ? { also: m.also } : {}),
               from: m.from,
               text: m.text,
               failed,
@@ -280,7 +308,7 @@ export function delivery(host: ExtensionHost) {
               ...(m.remote ? { remote: m.remote } : {}),
             },
           }
-          const body = `Reply from ${task.input.toLabel} to your message ${m.re}${stopped ? ' (stopped)' : failed ? ' (failed)' : ''}:\n${m.text}`
+          const body = `Reply from ${task.input.toLabel} to your ${answered(m)}${stopped ? ' (stopped)' : failed ? ' (failed)' : ''}:\n${m.text}`
           const content = images.length ? [{ type: 'text' as const, text: body }, ...images] : body
           await sender?.submit(
             {

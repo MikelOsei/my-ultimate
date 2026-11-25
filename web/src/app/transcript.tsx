@@ -55,6 +55,7 @@ import { ExtensionBoundary, Provided, Slot } from './boundary.tsx'
 import { ParkedRuns, RunStart } from '../sdk/types.ts'
 import type { CompactSummaryProps } from '../sdk/types.ts'
 import { MessageActions } from './message-actions.tsx'
+import { Collapsed, useCollapsed } from './collapse.tsx'
 import { textOf, UserView } from './user-turn.tsx'
 import {
   anchorSelector,
@@ -1135,6 +1136,7 @@ function AssistantView({
 }) {
   const extensions = useExtensions()
   const labels = messageItems(extensions, 'answerLabels')
+  const collapsed = useCollapsed(entry)
   const last = message.content.length - 1
   const final =
     !streaming &&
@@ -1146,6 +1148,8 @@ function AssistantView({
   const text = message.content
     .flatMap((block) => (block.type === 'text' && block.text.trim() ? [block.text] : []))
     .join('\n\n')
+  // A collapsed message is one line, where its actions would be.
+  if (entry && collapsed) return tail ? <Collapsed entry={entry} /> : null
   return (
     <Message
       className={cn(
@@ -1208,7 +1212,13 @@ function AssistantView({
         <AssistantNotice message={message} />
       )}
       {tail && entry && (text || ended) && (
-        <MessageActions entry={entry} text={text} timestamp={message.timestamp} />
+        <MessageActions
+          collapsible={!!text}
+          entry={entry}
+          replyable
+          text={text}
+          timestamp={message.timestamp}
+        />
       )}
     </Message>
   )

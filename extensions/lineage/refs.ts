@@ -46,10 +46,20 @@ export const RecentAction = actionRef<
   RootEvent[]
 >('lineage', 'recent')
 /**
- * No arguments → opens the project folder in Zed on the machine Ultimate runs on (`zeditor`, else `zed`, on PATH).
- * Refused when neither is installed. User-only.
+ * No arguments → the editor every "Open in …" button uses: `editor` in `~/.ultimate/settings.json` (a command on
+ * PATH, such as `code`), else Zed; `label` names it on the button ("VS Code").
  */
-export const OpenEditorAction = actionRef<null, { editor: string }>('lineage', 'openEditor')
+export const EditorAction = actionRef<null, { command: string; label: string }>('lineage', 'editor')
+/**
+ * `{ id?, file?, line? }` → opens the project folder, or conversation `id`'s worktree, in that editor on the machine
+ * Ultimate runs on (without the setting `zeditor`, else `zed`); `file`, a path inside that folder, opens at `line`,
+ * clamped to its length. Refused when it is not on PATH, `id` has no ready worktree or `file` no longer exists.
+ * User-only.
+ */
+export const OpenEditorAction = actionRef<
+  { id?: number; file?: string; line?: number } | null,
+  { editor: string }
+>('lineage', 'openEditor')
 /** `{ id, instructions? }` → `{ taskId }`: compact root `id`'s tally, for its history footer and the palette. */
 export const CompactAction = actionRef<{ id: number; instructions?: string }, { taskId: number }>(
   'lineage',

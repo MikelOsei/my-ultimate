@@ -304,7 +304,7 @@ function Switcher() {
               {port(current.url)}
             </span>
           ) : (
-            <span className="shrink-0 font-mono text-[11.5px] text-muted-foreground max-md:hidden">
+            <span className="truncate font-mono text-[11.5px] text-muted-foreground max-md:hidden">
               {data.length} {data.length === 1 ? 'preview' : 'previews'}
             </span>
           )}

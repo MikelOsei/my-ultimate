@@ -3,6 +3,7 @@ import { join } from 'node:path'
 import { expect, it } from 'vitest'
 import { git, isolatable, noCommit, noRepository } from '../lib/git.ts'
 import { readJson, updateJson, writeJson } from '../lib/json-file.ts'
+import { restartRefusal } from '../lib/packages.ts'
 import { readSettings, updateSettings } from '../lib/settings.ts'
 import { shortTitle } from '../lib/title.ts'
 import { temp } from './helpers.ts'
@@ -89,4 +90,18 @@ it('trims git output, reports a failed command with its stderr and explains why 
   await git(repo, 'init', '-q', '-b', 'main')
   expect(await isolatable(repo)).toEqual({ reason: noCommit })
   expect(await git({ cwd: repo, timeout: 0 }, 'symbolic-ref', '--short', 'HEAD')).toBe('main')
+})
+
+// The Pi 1.5 landing bumped dependencies and the hosts restarted before pnpm install: the new cores crashed on the old
+// packages. Every restart path (the restart tool, the stale-load recovery, /api/restart) goes through this check.
+it('refuses a restart while the lockfile differs from the installed packages', async () => {
+  const root = await temp('ultimate-lib-')
+  await mkdir(join(root, 'node_modules/.pnpm'), { recursive: true })
+  await writeFile(join(root, 'pnpm-lock.yaml'), 'pi-durable: 1.5.0\n')
+  await writeFile(join(root, 'node_modules/.pnpm/lock.yaml'), 'pi-durable: 1.4.0\n')
+  expect(await restartRefusal(root)).toBe(
+    `Restart refused: dependencies changed (pnpm-lock.yaml differs from the installed packages); run pnpm install --frozen-lockfile in ${root}, then restart`,
+  )
+  await writeFile(join(root, 'node_modules/.pnpm/lock.yaml'), 'pi-durable: 1.5.0\n')
+  expect(await restartRefusal(root)).toBeUndefined()
 })

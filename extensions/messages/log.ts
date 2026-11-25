@@ -23,6 +23,13 @@ export async function append(tx: Tx, input: Omit<Message, 'id' | 'at'>) {
   if (log.messages.length > 300) log.messages.splice(0, log.messages.length - 300)
   return message
 }
+/** The messages a reply answers, as its text names them: `message 3`, `messages 3 and 5`, `messages 3, 5 and 7`. */
+export function answered(reply: Pick<Message, 're' | 'also'>) {
+  const ids = [reply.re, ...(reply.also ?? [])]
+  return ids.length === 1
+    ? `message ${ids[0]}`
+    : `messages ${ids.slice(0, -1).join(', ')} and ${ids.at(-1)}`
+}
 export const terminal = {
   status: 'terminal',
   outcome: { status: 'completed', result: null },

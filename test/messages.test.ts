@@ -520,6 +520,53 @@ it('turns a message to a sender it owes an answer into that answer, once, with i
   expect(view.entries.at(-1)?.kind).toBe('pi.tool-result')
   expect(f.observed.filter((t) => t.startsWith('Reply from'))).toHaveLength(1)
 })
+/** Messages from @ultimate (#1) to the recipient, the first holding its run so the rest steer into it. */
+async function heldRun(f: Awaited<ReturnType<typeof fixture>>, ...texts: string[]) {
+  const ask = (text: string, n: number) =>
+    sendMessage(f.host, 1, { to: `#${f.recipient.id}`, text }, context, { requestId: `ask:${n}` })
+  await ask('HOLD', 0)
+  await until(f.holding)
+  for (const [n, text] of texts.entries()) await ask(text, n + 1)
+  f.hold.release()
+  await until(async () => (await replies(f)).length > 0)
+  await until(async () =>
+    (await f.opened.harness.inspect(context)).tasks.every(
+      ({ record }) => record.kind !== 'board.delivery',
+    ),
+  )
+}
+// #12452 settled messages 293, 295, 299, 300 and 301 with one answer, and @ultimate received it five times.
+it('returns one answer to several messages from one sender as one reply naming them all', async () => {
+  const f = await fixture()
+  await heldRun(f, 'Second')
+  const [reply, ...more] = await replies(f)
+  expect(more).toEqual([])
+  expect(reply.data).toMatchObject({ re: 1, also: [2], failed: false })
+  expect(f.observed).toContainEqual(expect.stringContaining('to your messages 1 and 2:\nAnswer:'))
+  const messages = (await f.log())!.messages
+  expect(messages.map((m) => [m.id, m.state, m.re, m.also])).toEqual([
+    [1, 'answered', undefined, undefined],
+    [2, 'answered', undefined, undefined],
+    [3, 'delivered', 1, [2]],
+  ])
+  expect(new Set(messages.map((m) => m.answer)).size).toBe(1)
+})
+// #18259 answered message 392 with message; 393, delivered to the same run, came back "ended its turn without an
+// answer (done)".
+it('makes a message the one answer to every message its sender delivered to that run', async () => {
+  const f = await fixture()
+  await heldRun(f, 'SEND ' + JSON.stringify({ to: '#1', text: 'Ready' }))
+  const [reply, ...more] = await replies(f)
+  expect(more).toEqual([])
+  expect(reply.data).toMatchObject({ re: 1, also: [2], text: 'Ready', failed: false })
+  expect(f.observed).toContainEqual(expect.stringContaining('to your messages 1 and 2:\nReady'))
+  expect((await toolResults(f)).at(-1)).toContain('Sent as your answer to messages 1 and 2.')
+  expect((await f.log())!.messages.map((m) => [m.id, m.state, m.error])).toEqual([
+    [1, 'answered', undefined],
+    [2, 'answered', undefined],
+    [3, 'delivered', undefined],
+  ])
+})
 it("turns @ultimate's message to the user it owes an answer into that answer and ends the run", async () => {
   const f = await fixture()
   const owe = (text: string) =>

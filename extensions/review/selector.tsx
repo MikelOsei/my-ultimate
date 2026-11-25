@@ -10,6 +10,7 @@ import {
 } from '@/components/ui/command'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { cn, useAction } from '@/sdk'
+import { useRecent } from './link.tsx'
 import { RangesAction } from './refs.ts'
 import type { ReviewRange } from './refs.ts'
 
@@ -39,6 +40,16 @@ export function Selector({
       )
     : list
   const groups = Map.groupBy(shown, (range) => range.group)
+  // What Review showed last, named as the list names it, before everything else while nothing is typed.
+  const [recent] = useRecent()
+  const opened = needle
+    ? []
+    : recent
+        .filter((item) => item !== spec)
+        .map(
+          (item) =>
+            list.find((range) => range.spec === item) ?? { spec: item, label: shortSpec(item) },
+        )
   const choose = (next: string) => {
     setOpen(false)
     setQuery('')
@@ -69,7 +80,7 @@ export function Selector({
           <CommandInput
             className="font-mono text-[12.5px]"
             onValueChange={setQuery}
-            placeholder="uncommitted, <sha>, <a>...<b>, branch:<name>"
+            placeholder="uncommitted, <sha>, <a>...<b>, branch:<name>, tree:<folder>"
             value={query}
           />
           <CommandList className="max-h-[60vh]">
@@ -92,6 +103,19 @@ export function Selector({
               <CommandEmpty className="py-6 text-center text-[12px] text-muted-foreground">
                 Nothing recent.
               </CommandEmpty>
+            )}
+            {opened.length > 0 && (
+              <CommandGroup heading="Recently opened">
+                {opened.map((range) => (
+                  <Choice
+                    current={false}
+                    key={range.spec}
+                    onSelect={() => choose(range.spec)}
+                    range={range}
+                    value={`recent:${range.spec}`}
+                  />
+                ))}
+              </CommandGroup>
             )}
             {[...groups].map(([group, items]) => (
               <Fragment key={group}>
@@ -118,13 +142,16 @@ function Choice({
   range,
   current,
   onSelect,
+  value = range.spec,
 }: {
-  range: ReviewRange
+  range: Pick<ReviewRange, 'spec' | 'label' | 'detail'>
   current: boolean
   onSelect: () => void
+  /** cmdk's key for the item: a spec listed twice needs a second one. */
+  value?: string
 }) {
   return (
-    <CommandItem className="gap-2 py-1 text-[12.5px]" onSelect={onSelect} value={range.spec}>
+    <CommandItem className="gap-2 py-1 text-[12.5px]" onSelect={onSelect} value={value}>
       <span className={cn('min-w-0 flex-1 truncate', current && 'text-brand')}>{range.label}</span>
       {range.detail && (
         <span className="shrink-0 font-mono text-[11px] text-muted-foreground">{range.detail}</span>

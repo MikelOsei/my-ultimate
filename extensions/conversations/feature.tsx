@@ -48,7 +48,8 @@ export function useStandingName(id: number) {
  * A conversation as a person recognises it: a standing agent by its `@name`; else its feature tag and `title`, else
  * its live title; then `#id` in gray. Only
  * the name: the caller's button or link opens it. It never grows past its container: a long name truncates, with the
- * full name on hover, as long as the caller's flex item may shrink (`min-w-0`).
+ * full name on hover, as long as the caller's flex item may shrink (`min-w-0`). Inside a container narrower than 18rem
+ * (`@container`) the feature tag truncates too, so the `#id` stays in view.
  */
 export function ConversationRef({
   id,
@@ -70,7 +71,7 @@ export function ConversationRef({
       className={cn('inline-flex max-w-full min-w-0 items-center gap-1.5', className)}
       data-conversation-ref={id}
     >
-      {feature && <FeatureTag className="shrink-0" feature={feature} />}
+      {feature && <FeatureTag className="shrink-0 @max-[18rem]:shrink" feature={feature} />}
       {name && (
         <span className="min-w-0 truncate" title={name}>
           {name}

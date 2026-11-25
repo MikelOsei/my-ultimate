@@ -118,7 +118,7 @@ export function Segmented<T extends string>({
     <div
       aria-label={label}
       className={cn(
-        'inline-flex rounded-md border border-border/80 bg-background p-0.5 font-mono text-[11px]',
+        'inline-flex flex-wrap rounded-md border border-border/80 bg-background p-0.5 font-mono text-[11px]',
         className,
       )}
       role="group"

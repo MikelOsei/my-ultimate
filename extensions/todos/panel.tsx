@@ -2,6 +2,7 @@ import {
   ArrowUpRightIcon,
   CheckIcon,
   ChevronRightIcon,
+  ListTodoIcon,
   MessageCircleQuestionIcon,
   PlayIcon,
   PlusIcon,
@@ -18,7 +19,7 @@ import { AddAction, DoneAction, ReopenAction, TodosDoc } from './refs.ts'
 import type { Todo } from './refs.ts'
 
 /** The fields of a waiting message a question row shows. */
-type Asked = {
+export type Asked = {
   id: number
   from: number | 'user' | 'remote'
   text: string
@@ -32,6 +33,24 @@ const owners: { id: Todo['owner']; label: string }[] = [
   { id: 'user', label: 'you' },
   { id: 'ultimate', label: '@ultimate' },
 ]
+
+/** The To-dos tab icon, with an accent dot while a question or a to-do waits on the user. */
+export function TodosIcon({ className }: { className?: string }) {
+  const items = useDocOf(1, TodosDoc)?.items ?? []
+  const asked = waiting((useDocOf(1, MessagesDoc) ?? emptyMessages).messages).length > 0
+  const yours = items.some((todo) => !todo.done && todo.owner === 'user')
+  return (
+    <span className={cn('relative shrink-0', className)}>
+      <ListTodoIcon className="size-full" />
+      {(asked || yours) && (
+        <span
+          className="absolute -top-0.5 -right-0.5 size-1.5 rounded-full bg-brand"
+          data-todos-waiting
+        />
+      )}
+    </span>
+  )
+}
 
 /**
  * The project's to-dos: what waits on you (questions asked of you, read live from Messages, then your own to-dos), what
@@ -230,22 +249,16 @@ function TodoRow({
  */
 function QuestionRow({ message, now }: { message: Asked; now: number }) {
   const questions = message.questions ?? []
-  const { showSurface, switchConversation } = useUltimate()
   const accent = useAccentOf(message.from)
   const more = questions.length > 1 ? ` +${questions.length - 1}` : ''
   const from = typeof message.from === 'number' ? message.from : undefined
-  const open = () => {
-    if (from === undefined) return
-    if (message.call) events.emit('messages:open', { conversation: from, call: message.call })
-    showSurface('agent')
-    switchConversation(from)
-  }
+  const open = useOpenQuestion()
   return (
     <li data-todo-question={message.id}>
       <button
         className="group/question flex w-full cursor-pointer items-start gap-2.5 rounded px-2 py-1.5 text-left hover:bg-muted/50 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none disabled:cursor-default"
         disabled={from === undefined}
-        onClick={open}
+        onClick={() => open(message)}
         title={from === undefined ? undefined : `Answer in #${from}`}
         type="button"
       >
@@ -281,8 +294,20 @@ function QuestionRow({ message, now }: { message: Asked; now: number }) {
   )
 }
 
+/** Opens the asker's conversation at a waiting message, whose card has the choices; another project's cannot open. */
+export function useOpenQuestion() {
+  const { showSurface, switchConversation } = useUltimate()
+  return (message: Asked) => {
+    if (typeof message.from !== 'number') return
+    if (message.call)
+      events.emit('messages:open', { conversation: message.from, call: message.call })
+    showSurface('agent')
+    switchConversation(message.from)
+  }
+}
+
 /** A message's first line of prose, without Markdown marks. */
-const gist = (text: string) =>
+export const gist = (text: string) =>
   (text.split('\n').find((line) => line.trim()) ?? '')
     .replace(/^[#>\-*\s]+/, '')
     .replace(/[*_`]/g, '')

@@ -31,6 +31,7 @@ import {
   provide,
   Provided,
   formatAgo,
+  useAction,
   formatKeys,
   formatTime,
   formatTokens,
@@ -48,8 +49,8 @@ import type { EntryRecord, ToolCallView } from '@/sdk'
 import { store } from '@/sdk/client'
 import { ConversationRef, Unsummarized } from '../conversations/ui.tsx'
 import { talkToUltimate } from '../subagents/ui.tsx'
-import { Open, useGithubRepo } from '../workspaces/ui.tsx'
-import { ForgetAction, MemoryDoc, OpenEditorAction, TallyDoc } from './refs.ts'
+import { Open, useGithubRepo, useWorkspaces } from '../workspaces/ui.tsx'
+import { EditorAction, ForgetAction, MemoryDoc, OpenEditorAction, TallyDoc } from './refs.ts'
 import type { MemoryItem } from './refs.ts'
 import { column, MEMORY_FOCUS, MEMORY_SURFACE, MemoryHeader, useRoots } from './ui.tsx'
 import { MemoryCall, NotifyCall, RememberCall } from './calls.tsx'
@@ -385,6 +386,38 @@ function RootComposer({ core, dock }: { core: ReactNode; dock?: boolean }) {
   return <HistoryBanner dock={dock} id={id} />
 }
 
+/**
+ * Opens the project folder, or conversation `id`'s worktree, in the `editor` setting's editor. It opens on the machine
+ * Ultimate runs on, so a phone does not get it.
+ */
+function OpenInEditor({ id, size }: { id?: number; size?: 'xs' }) {
+  const label = useAction(EditorAction).data?.label ?? 'editor'
+  return (
+    <Button
+      className="pointer-coarse:hidden"
+      onClick={() =>
+        void api
+          .action(OpenEditorAction, id === undefined ? null : { id })
+          .catch((error: unknown) => store.notify({ level: 'error', message: errorMessage(error) }))
+      }
+      size={size}
+      title={`Open ${id === undefined ? 'the project folder' : `#${id}'s worktree`} in ${label}, on the machine Ultimate runs on`}
+      variant="ghost"
+    >
+      <CodeIcon />
+      Open in {label}
+    </Button>
+  )
+}
+
+/** A branch with a worktree gets its own Open in … button in the header, for editing its files by hand. */
+function BranchEditor() {
+  const id = useConversation((conversation) => conversation.id)
+  const workspace = useWorkspaces()[String(id)]
+  if (id === undefined || workspace?.state !== 'ready') return null
+  return <OpenInEditor id={id} size="xs" />
+}
+
 function HistoryBanner({ id, dock }: { id: number; dock?: boolean }) {
   const actions = useUltimate()
   const github = useGithubRepo()
@@ -405,22 +438,7 @@ function HistoryBanner({ id, dock }: { id: number; dock?: boolean }) {
           </p>
         </div>
         <div className="ml-auto flex items-center gap-1">
-          {/* Zed opens on the machine Ultimate runs on, so a phone gets only the GitHub link. */}
-          <Button
-            className="pointer-coarse:hidden"
-            onClick={() =>
-              void api
-                .action(OpenEditorAction)
-                .catch((error: unknown) =>
-                  store.notify({ level: 'error', message: errorMessage(error) }),
-                )
-            }
-            title="Open the project folder in Zed, on the machine Ultimate runs on"
-            variant="ghost"
-          >
-            <CodeIcon />
-            Open in Zed
-          </Button>
+          <OpenInEditor />
           {github && (
             <Button asChild size="icon" variant="ghost">
               <a
@@ -738,7 +756,7 @@ export default defineWebExtension({
       component: MemorySurface,
     },
   ],
-  slots: { overlay: [Roots] },
+  slots: { overlay: [Roots], 'header.right': [BranchEditor] },
   // A root runs no turns and gets no summaries: its tally speaks for it.
   provides: [provide(Unsummarized, (id) => useRoots()?.includes(id) ?? false)],
 })

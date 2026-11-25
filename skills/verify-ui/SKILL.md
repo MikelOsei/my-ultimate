@@ -1,6 +1,6 @@
 ---
 name: verify-ui
-description: Check a UI change in Ultimate by looking at it with the screenshot and browser tools, on the running host or a preview. Use after changing anything a person sees (web/, a web.tsx, a card, a renderer) and before reporting it done or asking for approval.
+description: Check a UI change in Ultimate by looking at it with the screenshot and browser tools, on a preview or, after warning the user, the running host. Use after changing anything a person sees (web/, a web.tsx, a card, a renderer) and before reporting it done or asking for approval.
 ---
 
 # Look at the change
@@ -9,9 +9,11 @@ Never claim a UI change works without an image of it.
 
 ## Where to look
 
-- `web/` and built-in `extensions/` changes in the host's own checkout reload in the running host: omit `url`.
-- A worktree, a branch or a project `.ultimate/extensions/` change does not reach the host: start a preview of the
-  checkout (`instance start`) and pass its URL. `server/` or `shared/` changes need a fresh preview.
+- Prefer a preview: start one of your checkout (`instance start`) and pass its URL. A worktree, a branch or a project
+  `.ultimate/extensions/` change reaches only a preview, and `server/` or `shared/` changes need a fresh one.
+- The running host (omit `url`) is the user's own UI: driving it with `browser` or `screenshot` can switch their tabs
+  and conversation. Use it only when that is faster (a change already live in the host's checkout) and warn or ask
+  the user first; a branch asks through @ultimate. They may step away or open another session meanwhile.
 
 ## How
 
@@ -40,6 +42,18 @@ Never claim a UI change works without an image of it.
 - Open a conversation with `?conversation=<id>`. Right-panel section titles show their source text in sentence case
   (the `section-label` utility); match them with `textContent.startsWith('Skills')`, since counts and meta follow.
 - Seed real state with real prompts on a preview; do not inject entries.
+
+## When a selector fails
+
+Do not retry with another guess or add a `wait`. Instead:
+
+1. Look first: a `screenshot` of the state, or an `eval` that lists the candidates, such as
+   `[...document.querySelectorAll('[data-entry-id]')].map((e) => e.dataset.entryId)`.
+2. Pick a stable hook from what is there: a `data-*` attribute, an id or a role, scoped to its card or panel. Text
+   and class names change with copy and styling.
+3. When the element appears later, wait for the state behind it with `until` (`idle`, `quiet`, an entry or an
+   event), then select.
+4. No hook to hold on to? Add a `data-*` attribute to the component under test rather than chaining fragile selectors.
 
 ## What to check
 

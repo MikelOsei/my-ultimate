@@ -4,10 +4,14 @@ import { MentionText, Message, MessageContent } from '@/components/ai/message'
 import { MessageResponse } from '@/components/ai/message'
 import { Tool, ToolContent, ToolHeader, ToolImage, ToolSection } from '@/components/ai/tool'
 import { cn } from 'cn'
+import { ReplyIcon } from 'lucide-react'
+import { events } from '../sdk/events.ts'
 import { useExtensions } from '../sdk/hooks.ts'
 import { messageItems } from '../sdk/registry.ts'
 import { ExtensionBoundary } from './boundary.tsx'
+import { CollapseButton, Collapsed, useCollapsed } from './collapse.tsx'
 import { MessageActions } from './message-actions.tsx'
+import { replyInput } from './reply.ts'
 
 /** The text blocks of a user message, joined. */
 export function textOf(content: string | readonly (TextContent | ImageContent)[]) {
@@ -53,6 +57,24 @@ function SkillRun({ name, location, body }: { name: string; location: string; bo
   )
 }
 
+/** What a reply quoted, one quiet line atop the user's bubble that scrolls back to the message it answers. */
+function Quote({ entry, id, excerpt }: { entry: EntryRecord; id: number; excerpt: string }) {
+  return (
+    <button
+      className="-mb-1 flex min-w-0 cursor-pointer items-center gap-1.5 text-left font-mono text-[11px] text-muted-foreground/70 hover:text-muted-foreground"
+      data-reply-quote={id}
+      onClick={() =>
+        events.emit('ultimate:reveal-entry', { conversationId: entry.conversationId, entryId: id })
+      }
+      title="Show the message this replies to"
+      type="button"
+    >
+      <ReplyIcon className="size-3 shrink-0" />
+      <span className="truncate">{excerpt}</span>
+    </button>
+  )
+}
+
 /** The user's words as written, with mentions as chips: the body of every user turn. */
 export function UserText({ text, className }: { text: string; className?: string }) {
   return (
@@ -80,13 +102,29 @@ export function UserView({
       ? []
       : message.content.filter((block) => block.type === 'image')
   const skill = skillInput(text)
+  // A reply's quote leads its words, or a skill's request.
+  const request = skill ? skill.request : text
+  const reply = replyInput(request)
+  const words = reply ? reply.text : request
   const additions = messageItems(useExtensions(), 'userBubble')
+  if (useCollapsed(entry)) {
+    return (
+      <Message className="mt-3 first:mt-0" from="user">
+        <Collapsed className="ml-auto" entry={entry} />
+      </Message>
+    )
+  }
   return (
     <Message className="group/message mt-3 first:mt-0" from="user">
       <div className="relative">
+        <CollapseButton
+          className="absolute -top-2 -right-2 z-10 border border-border/70 bg-background p-1 text-muted-foreground/60 opacity-0 group-hover/message:opacity-100 focus-visible:opacity-100 pointer-coarse:opacity-100"
+          entry={entry}
+        />
         <MessageContent>
+          {reply && <Quote entry={entry} excerpt={reply.excerpt} id={reply.id} />}
           {skill && <SkillRun {...skill} />}
-          {(!skill || skill.request) && <UserText text={skill ? skill.request : text} />}
+          {(!skill || words) && <UserText text={words} />}
           {images.length > 0 && (
             <div className="flex flex-wrap gap-2">
               {images.map((image, index) => (
@@ -105,7 +143,7 @@ export function UserView({
       <MessageActions
         className="-mt-1 justify-end"
         entry={entry}
-        text={text}
+        text={reply ? words : text}
         timestamp={message.timestamp}
       />
     </Message>

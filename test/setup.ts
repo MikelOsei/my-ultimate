@@ -17,6 +17,11 @@ for (const key of Object.keys(process.env))
   if (/_API_KEY$|_OAUTH_TOKEN$/.test(key)) delete process.env[key]
 // Test servers, and the previews they start, must never publish on this machine's tailnet: they find no Tailscale CLI.
 process.env.TAILSCALE_COMMAND = join(testTmpdir, 'no-tailscale')
+// Test repositories commit without signing: a machine that signs every commit (a hardware key, a passphrase) would fail
+// or block each one.
+process.env.GIT_CONFIG_COUNT = '1'
+process.env.GIT_CONFIG_KEY_0 = 'commit.gpgsign'
+process.env.GIT_CONFIG_VALUE_0 = 'false'
 // Instance startup sweeps must never inspect the machine's real preview homes during tests.
 const previousTmpdir = process.env.TMPDIR
 process.env.TMPDIR = testTmpdir

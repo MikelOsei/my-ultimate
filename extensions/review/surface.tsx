@@ -6,25 +6,12 @@ import type {
   FileDiffOptions,
   SelectedLineRange,
 } from '@pierre/diffs/react'
-import {
-  ArrowUpRightIcon,
-  CheckIcon,
-  ChevronDownIcon,
-  Columns2Icon,
-  Rows3Icon,
-  XIcon,
-} from 'lucide-react'
+import { ArrowUpRightIcon, CheckIcon, CodeIcon, XIcon } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu'
+import { DiffStat } from '@/components/ui/diff-stat'
 import {
   api,
-  cn,
   errorMessage,
   useAction,
   useExtensionUiState,
@@ -34,11 +21,14 @@ import {
 } from '@/sdk'
 import { Address } from '../messages/ui.tsx'
 import { compareUrl } from '../../lib/compare.ts'
+import { EditorAction } from '../lineage/ui.tsx'
 import { useGithubRepo } from '../workspaces/ui.tsx'
 import { Composer, DraftCard } from './comment.tsx'
 import { draftsKey } from './comments.ts'
 import { useDrafts } from './drafts.ts'
 import type { Draft, Drafts } from './drafts.ts'
+import { FileList, FileMenu } from './files.tsx'
+import type { Layout } from './files.tsx'
 import { Footer } from './footer.tsx'
 import { commentRange, excerptFor } from './lines.ts'
 import type { CommentLines } from './lines.ts'
@@ -46,7 +36,7 @@ import { reachedTarget, useSpec, useTarget } from './link.tsx'
 import type { ReviewTarget } from './link.tsx'
 import { Frame, Loading, Notice } from './parts.tsx'
 import { Recipient } from './recipient.tsx'
-import { DiffAction, RecipientAction, SendAction } from './refs.ts'
+import { DiffAction, OpenAction, RecipientAction, SendAction } from './refs.ts'
 import type { ReviewDiff, ReviewFile } from './refs.ts'
 import { Selector } from './selector.tsx'
 
@@ -74,6 +64,10 @@ const themeCss = `
 /* One continuous bar down the selected line numbers, while dragging and after. */
 [data-gutter] [data-selected-line] { box-shadow: inset 3px 0 0 var(--brand); color: var(--foreground); }
 [data-diffs-header] { border-bottom: 1px solid var(--border); font-size: 12.5px; }
+/* Its counts put deletions first, with a hyphen: the header renders DiffStat instead. */
+[data-additions-count], [data-deletions-count] { display: none; }
+/* The file name is the header's FileName link, in the slot right after it. */
+[data-title] { display: none; }
 [data-annotation-content] { background: var(--background); }
 [data-utility-button] { background: var(--brand); color: var(--background); border-radius: 4px; }
 `
@@ -91,112 +85,20 @@ const rangeOf = (draft: CommentLines): SelectedLineRange => ({
   side: sideOf(draft.side),
 })
 
-const status: Record<ReviewFile['status'], [string, string]> = {
-  added: ['A', 'text-diff-add'],
-  deleted: ['D', 'text-diff-del'],
-  modified: ['M', 'text-muted-foreground'],
-  renamed: ['R', 'text-brand'],
-  copied: ['C', 'text-brand'],
-}
-
-/** Files by their directory, directories in path order, files in diff order within each. */
-function byDirectory(files: ReviewFile[]) {
-  const groups = Map.groupBy(files, (file) => {
-    const slash = file.path.lastIndexOf('/')
-    return slash === -1 ? '' : file.path.slice(0, slash)
-  })
-  return [...groups].toSorted(([a], [b]) => a.localeCompare(b))
-}
-const fileName = (path: string) => path.slice(path.lastIndexOf('/') + 1)
 const anchor = (path: string) => `review-file-${path}`
 
-function Counts({ additions, deletions }: { additions: number; deletions: number }) {
-  return (
-    <span className="shrink-0 font-mono text-[11px] tabular-nums">
-      <span className="text-diff-add">+{additions}</span>{' '}
-      <span className="text-diff-del">−{deletions}</span>
-    </span>
-  )
-}
-
-function FileList({ files, onPick }: { files: ReviewFile[]; onPick: (path: string) => void }) {
-  return (
-    <nav className="w-64 shrink-0 overflow-y-auto border-r border-border/70 bg-sidebar py-1.5">
-      {byDirectory(files).map(([directory, items]) => (
-        <div key={directory}>
-          {directory && (
-            <div
-              className="truncate px-3 pt-1.5 pb-0.5 font-mono text-[10.5px] text-muted-foreground/80"
-              title={directory}
-            >
-              {directory}/
-            </div>
-          )}
-          {items.map((file) => {
-            const [letter, tone] = status[file.status]
-            return (
-              <button
-                className="flex w-full cursor-pointer items-center gap-2 px-3 py-0.5 text-left hover:bg-accent/60"
-                key={file.path}
-                onClick={() => onPick(file.path)}
-                title={file.oldPath ? `${file.oldPath} → ${file.path}` : file.path}
-                type="button"
-              >
-                <span className={cn('w-2.5 shrink-0 font-mono text-[10.5px]', tone)}>{letter}</span>
-                <span className="min-w-0 flex-1 truncate font-mono text-[12px] text-foreground/90">
-                  {fileName(file.path)}
-                </span>
-                {file.binary ? (
-                  <span className="font-mono text-[10.5px] text-muted-foreground">bin</span>
-                ) : (
-                  <Counts additions={file.additions} deletions={file.deletions} />
-                )}
-              </button>
-            )
-          })}
-        </div>
-      ))}
-    </nav>
-  )
-}
-
-/** The file list as a dropdown, on a phone. */
-function FileMenu({ files, onPick }: { files: ReviewFile[]; onPick: (path: string) => void }) {
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger className="flex h-8 w-full shrink-0 cursor-pointer items-center gap-1.5 border-b border-border/70 bg-sidebar px-3 font-mono text-[12px] text-muted-foreground">
-        {files.length} file{files.length === 1 ? '' : 's'}
-        <ChevronDownIcon className="size-3 opacity-60" />
-      </DropdownMenuTrigger>
-      <DropdownMenuContent
-        align="start"
-        className="max-h-[60vh] w-[calc(100vw-1rem)] overflow-y-auto"
-      >
-        {files.map((file) => (
-          <DropdownMenuItem
-            className="gap-2 font-mono text-[12px]"
-            key={file.path}
-            onSelect={() => onPick(file.path)}
-          >
-            <span className={cn('w-2.5 shrink-0 text-[10.5px]', status[file.status][1])}>
-              {status[file.status][0]}
-            </span>
-            <span className="min-w-0 flex-1 truncate">{file.path}</span>
-            <Counts additions={file.additions} deletions={file.deletions} />
-          </DropdownMenuItem>
-        ))}
-      </DropdownMenuContent>
-    </DropdownMenu>
-  )
-}
-
 /** A file whose hunks were left out: binary, a type change, a new symlink, or too large to show. */
-function Placeholder({ file }: { file: ReviewFile }) {
+function Placeholder({ file, editor }: { file: ReviewFile; editor: EditorTarget }) {
   return (
     <div className="rounded-md border border-border/70 bg-card/40">
       <div className="flex items-center gap-2 border-b border-border/70 px-4 py-2 font-mono text-[12px]">
-        <span className="min-w-0 flex-1 truncate">{file.path}</span>
-        {!file.binary && <Counts additions={file.additions} deletions={file.deletions} />}
+        <span className="flex min-w-0 flex-1">
+          <FileName editor={editor} file={file} />
+        </span>
+        {!file.binary && (
+          <DiffStat additions={file.additions} className="text-[11px]" deletions={file.deletions} />
+        )}
+        <OpenFile editor={editor} file={file} />
       </div>
       <p className="px-4 py-3 font-mono text-[11.5px] text-muted-foreground">
         {file.binary
@@ -211,6 +113,100 @@ function Placeholder({ file }: { file: ReviewFile }) {
   )
 }
 
+/**
+ * Where a diff's files can be edited by hand: the `tree` folder, conversation `id`'s worktree, else the project
+ * checkout, in the editor named `label`.
+ */
+type EditorTarget = { id?: number; tree?: string; label: string }
+
+/**
+ * The first changed line of the side that opens: the first hunk's start past its leading context, on the old side for a
+ * deleted file (its copy is the old version).
+ */
+function firstChange(file: ReviewFile, meta?: FileDiffMetadata) {
+  const hunk = meta?.hunks[0]
+  if (!hunk) return 1
+  const lead = hunk.hunkContent[0]
+  const start = file.status === 'deleted' ? hunk.deletionStart : hunk.additionStart
+  return Math.max(1, start + (lead?.type === 'context' ? lead.lines : 0))
+}
+
+/**
+ * Opening a diff's file in the editor, at its first changed line (the server clamps it to the file it opens): in its
+ * worktree, the project checkout, or, gone from both, a read-only copy of the diff's version. Never disabled.
+ */
+function opener(file: ReviewFile, editor: EditorTarget, meta?: FileDiffMetadata) {
+  const line = firstChange(file, meta)
+  const where =
+    file.opens === 'copy'
+      ? `as of ${file.rev?.slice(0, 7)}, read-only copy`
+      : file.opens === 'worktree' && editor.id !== undefined
+        ? `#${editor.id}'s worktree`
+        : file.opens === 'worktree' && editor.tree !== undefined
+          ? editor.tree
+          : 'project checkout'
+  return {
+    title: `Open in ${editor.label} at line ${line} (${where})`,
+    // A failure nobody catches shows as a notice.
+    open: () =>
+      void api.action(OpenAction, {
+        ...(editor.tree !== undefined
+          ? { tree: editor.tree }
+          : editor.id !== undefined && { worktree: editor.id }),
+        file: file.path,
+        line,
+        ...(file.rev && { rev: file.rev }),
+      }),
+  }
+}
+
+/** A file header's name, as a link that opens the file (see `opener`). */
+function FileName({
+  file,
+  meta,
+  editor,
+}: {
+  file: ReviewFile
+  meta?: FileDiffMetadata
+  editor: EditorTarget
+}) {
+  const { title, open } = opener(file, editor, meta)
+  return (
+    <button
+      className="min-w-0 cursor-pointer truncate text-left [direction:rtl] hover:underline"
+      onClick={open}
+      title={title}
+      type="button"
+    >
+      <bdi>{file.path}</bdi>
+    </button>
+  )
+}
+
+/** A file header's Open in … icon: the same as its name (see `opener`). */
+function OpenFile({
+  file,
+  meta,
+  editor,
+}: {
+  file: ReviewFile
+  meta?: FileDiffMetadata
+  editor: EditorTarget
+}) {
+  const { title, open } = opener(file, editor, meta)
+  return (
+    <button
+      aria-label={`Open in ${editor.label}`}
+      className="flex size-6 cursor-pointer items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground pointer-coarse:hidden"
+      onClick={open}
+      title={title}
+      type="button"
+    >
+      <CodeIcon className="size-3.5" />
+    </button>
+  )
+}
+
 /** One file's diff, with its draft comments under their lines and the composer under a selection. */
 function CommentedDiff({
   meta,
@@ -218,6 +214,8 @@ function CommentedDiff({
   drafts,
   writing,
   marked,
+  file,
+  editor,
   onWrite,
   update,
 }: {
@@ -226,6 +224,8 @@ function CommentedDiff({
   drafts: Draft[]
   writing?: Writing
   marked?: ReviewTarget
+  file: ReviewFile
+  editor: EditorTarget
   onWrite: (writing: Writing | undefined) => void
   update: (change: (drafts: Drafts) => Drafts) => boolean
 }) {
@@ -273,6 +273,13 @@ function CommentedDiff({
       fileDiff={meta}
       lineAnnotations={annotations}
       options={fileOptions}
+      renderHeaderFilenameSuffix={() => <FileName editor={editor} file={file} meta={meta} />}
+      renderHeaderMetadata={() => (
+        <span className="flex items-center gap-2">
+          <DiffStat additions={file.additions} className="text-[11px]" deletions={file.deletions} />
+          <OpenFile editor={editor} file={file} meta={meta} />
+        </span>
+      )}
       renderAnnotation={(annotation) => {
         const note = annotation.metadata
         if ('draft' in note)
@@ -324,7 +331,10 @@ function CommentedDiff({
 /** Each file's parsed diff, by path: what the viewer renders and what a sent comment quotes. */
 function parse(diff: ReviewDiff) {
   const byPath = new Map<string, FileDiffMetadata>()
-  for (const patch of parsePatchFiles(diff.patch, `${diff.base}:${diff.head ?? 'work'}`))
+  // Only two commits key a diff that never changes: a work tree's changes from one load to the next must not reuse the
+  // renderer's cached highlights.
+  const key = diff.head === undefined ? undefined : `${diff.base}:${diff.head}`
+  for (const patch of parsePatchFiles(diff.patch, key))
     for (const file of patch.files) byPath.set(file.name, file)
   return byPath
 }
@@ -333,16 +343,20 @@ function Diffs({
   diff,
   parsed,
   layout,
+  onLayout,
   phone,
   drafts,
+  editor,
   update,
   footer,
 }: {
   diff: ReviewDiff
   parsed: Map<string, FileDiffMetadata>
-  layout: 'split' | 'unified'
+  layout: Layout
+  onLayout: (layout: Layout) => void
   phone: boolean
   drafts: Drafts
+  editor: EditorTarget
   update: (change: (drafts: Drafts) => Drafts) => boolean
   footer: ReactNode
 }) {
@@ -390,9 +404,20 @@ function Diffs({
     return () => clearInterval(timer)
   }, [target, diff])
   const byFile = Map.groupBy(drafts.comments, (draft) => draft.file)
+  const drafted = new Map([...byFile].map(([file, items]) => [file, items.length]))
   return (
     <>
-      {!phone && <FileList files={diff.files} onPick={pick} />}
+      {!phone && (
+        <FileList
+          drafted={drafted}
+          files={diff.files}
+          layout={layout}
+          onLayout={onLayout}
+          editor={editor.label}
+          onOpen={(file) => opener(file, editor, parsed.get(file.path)).open()}
+          onPick={pick}
+        />
+      )}
       <div className="flex min-w-0 flex-1 flex-col">
         {phone && <FileMenu files={diff.files} onPick={pick} />}
         {diff.truncated && (
@@ -412,6 +437,8 @@ function Diffs({
                 {meta ? (
                   <CommentedDiff
                     drafts={byFile.get(file.path) ?? []}
+                    editor={editor}
+                    file={file}
                     marked={marked?.file === file.path ? marked : undefined}
                     meta={meta}
                     onWrite={setWriting}
@@ -420,7 +447,7 @@ function Diffs({
                     writing={writing}
                   />
                 ) : (
-                  <Placeholder file={file} />
+                  <Placeholder editor={editor} file={file} />
                 )}
               </section>
             )
@@ -487,6 +514,7 @@ export default function ReviewSurface() {
   const diff = useAction(DiffAction, args, { onError: () => undefined })
   const github = useGithubRepo()
   const [drafts, update] = useDrafts(draftsKey(spec, args.conversation))
+  const editorLabel = useAction(EditorAction).data?.label ?? 'editor'
   const suggested = useAction(RecipientAction, { spec }, { onError: () => undefined })
   const to = drafts.to ?? suggested.data?.conversation
   const [sending, setSending] = useState(false)
@@ -498,6 +526,20 @@ export default function ReviewSurface() {
   useEffect(() => {
     if (moved) setSpec(moved)
   }, [moved, setSpec])
+  // Work goes on while Review is open elsewhere: coming back to the window shows it as it is now.
+  const { refetch } = diff
+  useEffect(() => {
+    const reload = () => {
+      // oxlint-disable-next-line typescript/no-floating-promises -- useAction reports failures and resolves undefined rather than rejecting.
+      if (document.visibilityState === 'visible') void refetch()
+    }
+    window.addEventListener('focus', reload)
+    document.addEventListener('visibilitychange', reload)
+    return () => {
+      window.removeEventListener('focus', reload)
+      document.removeEventListener('visibilitychange', reload)
+    }
+  }, [refetch])
   const parsed = useMemo(() => (data ? parse(data) : new Map<string, FileDiffMetadata>()), [data])
   const send = async () => {
     if (to === undefined) return
@@ -574,38 +616,12 @@ export default function ReviewSurface() {
           />
           {data && totals && (
             <span className="shrink-0 font-mono text-[11.5px] text-muted-foreground">
-              <span className="text-diff-add">+{totals.additions}</span>{' '}
-              <span className="text-diff-del">−{totals.deletions}</span>
+              <DiffStat {...totals} />
               <span className="max-md:hidden">
                 {' '}
                 · {data.files.length} file{data.files.length === 1 ? '' : 's'}
               </span>
             </span>
-          )}
-          {!phone && (
-            <div className="flex shrink-0 items-center rounded-md border border-border/70 p-0.5">
-              {(
-                [
-                  ['split', Columns2Icon],
-                  ['unified', Rows3Icon],
-                ] as const
-              ).map(([name, Icon]) => (
-                <button
-                  aria-pressed={layout === name}
-                  className={cn(
-                    'flex h-6 cursor-pointer items-center gap-1 rounded-sm px-1.5 font-mono text-[11px] text-muted-foreground transition-colors',
-                    layout === name ? 'bg-accent text-foreground' : 'hover:text-foreground',
-                  )}
-                  key={name}
-                  onClick={() => setLayout(name)}
-                  title={`${name === 'split' ? 'Side by side' : 'Unified'} diff`}
-                  type="button"
-                >
-                  <Icon className="size-3.5" />
-                  <span className="max-lg:hidden">{name}</span>
-                </button>
-              ))}
-            </div>
           )}
           <span className="ml-auto" />
           {(drafts.comments.length > 0 || drafts.to !== undefined) && (
@@ -634,8 +650,10 @@ export default function ReviewSurface() {
             diff={data}
             parsed={parsed}
             drafts={drafts}
+            editor={{ id: data.worktree, tree: data.tree, label: editorLabel }}
             footer={footer}
             layout={layout}
+            onLayout={setLayout}
             phone={phone}
             update={update}
           />

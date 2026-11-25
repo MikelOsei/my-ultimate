@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { basename, dirname, join } from 'node:path'
@@ -10,6 +10,8 @@ import {
   defineDoc,
   defineExtension,
   defineTool,
+  GenerationTask,
+  hook,
   InboxDoc,
   LiveDoc,
   type ToolExecutionApi,
@@ -23,15 +25,71 @@ import {
   createEditTool,
   createReadTool,
   createWriteTool,
+  DEFAULT_IMAGE_LIMITS,
+  type PreparedImage,
 } from '@earendil-works/pi-durable/tools'
+import type { ImageContent, Message, TextContent } from '@earendil-works/pi-ai'
 import { createNodePhotonImages } from '@earendil-works/pi-durable/images/node'
 import { git } from '../../lib/git.ts'
+import { readSettings, userSettingsPath } from '../../lib/settings.ts'
 import type { ExtensionHost } from '../../server/extensions.ts'
 import { implementAction } from '../../lib/actions.ts'
 import { CancelAction, CancelledDoc, Committed } from './refs.ts'
 
 /** Lets Pi's read tool shrink an image past the model's limits (2000x2000 by default) instead of refusing it. */
 const images = await createNodePhotonImages()
+
+/**
+ * Each image a request carried, by SHA-1 of its type and data: `undefined` when it already fits, else its shrunk copy, or
+ * `null` when it cannot be made to fit. A conversation sends the same images with every request, so each is prepared
+ * once per process. Only the oldest entries are dropped; most are just a key.
+ */
+const fitted = new Map<string, PreparedImage | null | undefined>()
+
+async function fit(image: ImageContent): Promise<ImageContent | TextContent> {
+  const key = createHash('sha1').update(image.mimeType).update(image.data).digest('base64')
+  if (!fitted.has(key)) {
+    // Its own buffer, not Node's shared pool: the worker takes it over.
+    const prepared = await images.prepare(
+      Uint8Array.fromBase64(image.data),
+      image.mimeType,
+      DEFAULT_IMAGE_LIMITS,
+    )
+    if (fitted.size >= 1000) fitted.delete(fitted.keys().next().value!)
+    fitted.set(
+      key,
+      prepared?.data === image.data && prepared.mimeType === image.mimeType
+        ? undefined
+        : (prepared ?? null),
+    )
+  }
+  const prepared = fitted.get(key)
+  if (prepared === undefined) return image
+  if (prepared === null)
+    return { type: 'text', text: '[Image omitted: it could not be shrunk to fit the model.]' }
+  return { type: 'image', data: prepared.data, mimeType: prepared.mimeType }
+}
+
+/**
+ * `messages` with every image shrunk to the model's limits (2000x2000 px, 4.5 MiB), as `read` shrinks the images it
+ * returns, so an uploaded, pasted or forwarded one cannot fail the request. Stored entries keep the originals for
+ * full-size viewing. `undefined` when every image already fits.
+ */
+export async function fitImages(messages: readonly Message[]) {
+  let changed = false
+  const result = await Promise.all(
+    messages.map(async (message) => {
+      if (message.role === 'assistant' || typeof message.content === 'string') return message
+      const content = await Promise.all(
+        message.content.map(async (block) => (block.type === 'image' ? fit(block) : block)),
+      )
+      if (content.every((block, i) => block === message.content[i])) return message
+      changed = true
+      return { ...message, content } as Message
+    }),
+  )
+  return changed ? result : undefined
+}
 
 function defaultBashTimeout() {
   const seconds = Number(process.env.ULTIMATE_BASH_TIMEOUT ?? 600)
@@ -50,8 +108,10 @@ const bashTripwireMessage = (seconds: number) =>
  */
 const where = `"$(git symbolic-ref -q --short HEAD)" "$(git rev-parse --show-toplevel)" "$(git rev-parse --path-format=absolute --git-common-dir)"`
 const logCommit = `printf 'commit\\t%s\\t%s\\t%s\\t%s\\n' "$(git rev-parse HEAD)" ${where} 2>/dev/null >> "$ULTIMATE_COMMIT_LOG" || true #`
-const hooks = (conversation: number) => ({
-  'prepare-commit-msg': `git interpret-trailers --in-place --if-exists doNothing --trailer "Ultimate-Conversation: ${conversation}" "$1" #`,
+const hooks = (conversation: number, trailer: boolean) => ({
+  ...(trailer && {
+    'prepare-commit-msg': `git interpret-trailers --in-place --if-exists doNothing --trailer "Ultimate-Conversation: ${conversation}" "$1" #`,
+  }),
   'post-commit': logCommit,
   // `git am` and the apply backend of rebase make commits without post-commit.
   'post-applypatch': logCommit,
@@ -62,14 +122,33 @@ const hooks = (conversation: number) => ({
   'post-rewrite': `while read -r old new rest; do printf 'rewrite\\t%s\\t\\t\\t%s\\t%s\\n' "$new" "$(git rev-parse --path-format=absolute --git-common-dir)" "$old"; done 2>/dev/null >> "$ULTIMATE_COMMIT_LOG" || true #`,
 })
 
-/** Install the hooks for bash call `api` in `execution`; they log its commits to `log` when given. */
+/** `codingTools.commitTrailer` from the project's settings, else the user's; on unless one sets it to `false`. */
+export async function commitTrailer(host: Pick<ExtensionHost, 'projectRoot' | 'userHome'>) {
+  for (const path of [
+    join(host.projectRoot, '.ultimate/settings.json'),
+    userSettingsPath(host.userHome),
+  ]) {
+    // A malformed settings file must not stop every bash call; it keeps the default.
+    const settings: { codingTools?: { commitTrailer?: unknown } } = await readSettings(path).catch(
+      () => ({}),
+    )
+    const value = settings.codingTools?.commitTrailer
+    if (typeof value === 'boolean') return value
+  }
+  return true
+}
+
+/**
+ * Install the hooks for bash call `api` in `execution`; they log its commits to `log` when given, and add the
+ * `Ultimate-Conversation` trailer unless `trailer` is false.
+ */
 export function prepareBash(
   execution: BashExecution,
   api: Pick<ToolExecutionApi, 'conversationId'>,
-  log?: string,
+  { log, trailer = true }: { log?: string; trailer?: boolean } = {},
 ) {
   let count = Number(process.env.GIT_CONFIG_COUNT ?? 0)
-  for (const [event, command] of Object.entries(hooks(api.conversationId))) {
+  for (const [event, command] of Object.entries(hooks(api.conversationId, trailer))) {
     execution.env[`GIT_CONFIG_KEY_${count}`] = `hook.ultimate-${event}.event`
     execution.env[`GIT_CONFIG_VALUE_${count++}`] = event
     execution.env[`GIT_CONFIG_KEY_${count}`] = `hook.ultimate-${event}.command`
@@ -277,7 +356,9 @@ async function madeCommits(path: string, conversation: number) {
   return events
 }
 
-export default function codingTools(host: Pick<ExtensionHost, 'emit'>) {
+export default function codingTools(
+  host: Pick<ExtensionHost, 'emit' | 'projectRoot' | 'userHome'>,
+) {
   const shell = createBashTool()
   const parameters = obj({
     command: str({ description: 'Bash command to execute' }),
@@ -306,8 +387,9 @@ export default function codingTools(host: Pick<ExtensionHost, 'emit'>) {
         )
       // One log per invocation: task ids repeat across projects and a retried call reruns its task.
       const log = join(tmpdir(), `ultimate-commits-${randomUUID()}.log`)
+      const trailer = await commitTrailer(host)
       const call = createBashTool({
-        prepare: (execution) => prepareBash(execution, api, log),
+        prepare: (execution) => prepareBash(execution, api, { log, trailer }),
       })
       const run = (command: Context) => call.execute(args, api, command)
       try {
@@ -329,6 +411,14 @@ export default function codingTools(host: Pick<ExtensionHost, 'emit'>) {
   })
   return defineExtension({
     name: 'coding-tools',
+    hooks: [
+      hook(GenerationTask, {
+        beforeRequest: async ({ messages }) => {
+          const fittedMessages = await fitImages(messages)
+          return fittedMessages && { messages: fittedMessages }
+        },
+      }),
+    ],
     // Each tool keeps its own parameters; the list is only read through the base registration.
     tools: [
       createReadTool({ images }),

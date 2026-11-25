@@ -20,6 +20,7 @@ import { refOf } from '../lib/families.ts'
 import { callTrace } from './trace.ts'
 import { projectSkills } from './skills.ts'
 import { requestSwap } from './supervisor-protocol.ts'
+import { restartRefusal } from '../lib/packages.ts'
 import { activeChapter, finishChapterSwitch } from '../lib/chapters.ts'
 import { defaultModel } from '../lib/agents.ts'
 import type {
@@ -196,8 +197,9 @@ export async function prepareHarness(options: HostOptions) {
     models: async () => (await listModels(modelRuntime)).models,
     model: (ref: ModelRef) => modelRuntime.getModel(ref.provider, ref.modelId),
     skills: (cwd: string) => projectSkills({ ultimateRoot, projectRoot, userHome }, cwd).skills,
-    restart: (approved: (generation: number) => Promise<void>) =>
-      requestSwap(approved, builds.current()),
+    /** Swap in a new core; the refusal or failure as text. Never while installed packages lag the lockfile. */
+    restart: async (approved: (generation: number) => Promise<void>) =>
+      (await restartRefusal(ultimateRoot)) ?? requestSwap(approved, builds.current()),
     ultimateRoot,
     projectRoot,
     userHome,

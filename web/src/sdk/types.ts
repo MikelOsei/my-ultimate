@@ -1,7 +1,7 @@
 import type { ComponentType, ReactNode } from 'react'
 import type { ImageContent, ToolCall, ToolResultMessage } from '@earendil-works/pi-ai'
 import type { EntryRecord, InboxItem, JsonObject, ToolDiagnostic } from '@earendil-works/pi-durable'
-import type { ConversationSummary } from '../../../shared/protocol.ts'
+import type { AppearanceChange, ConversationSummary } from '../../../shared/protocol.ts'
 
 /** Named places in the shell that extensions fill with components. */
 export type SlotName =
@@ -14,6 +14,7 @@ export type SlotName =
   | 'header.right'
   | 'statusline.left'
   | 'statusline.right'
+  | 'composer.above'
   | 'composer.toolbar'
   | 'composer.status'
   | 'composer.actions'
@@ -144,7 +145,7 @@ export interface UltimateActions {
   switchConversation: (id: number, options?: { replace?: boolean }) => void
   /** Show surface `id` (`agent` is the home); the conversation keeps running. */
   showSurface: (id: string) => void
-  /** Open the right panel, on tab `id` when given. */
+  /** Open the right panel, on tab `id` when given; on a surface without panels, Agent shows first. */
   openPanel: (id?: string) => void
   closePanel: () => void
   togglePanel: () => void
@@ -157,6 +158,8 @@ export interface UltimateActions {
   focusComposer: () => void
   /** Switch this browser to the light or dark theme; `getState().ui.theme` is the current one. */
   setTheme: (theme: 'dark' | 'light') => void
+  /** Set this project's accent or window title, for every browser of it; an empty title or a `null` accent unsets it. */
+  setAppearance: (change: AppearanceChange) => Promise<void>
 }
 export interface UltimateContext extends UltimateActions {
   /** The shown conversation, once known. */

@@ -533,6 +533,31 @@ export default host => { host.resource('cleanup.process',()=>{
     )
   })
 
+  it("names and colours the installed app for the project's appearance", async () => {
+    const { server } = await fixture()
+    const manifest = async () =>
+      (await (await fetch(server.url + '/api/manifest.webmanifest')).json()) as {
+        name: string
+        icons: { src: string }[]
+      }
+    const folder = (await manifest()).name
+    expect(
+      (await post(server, '/api/appearance', { title: ' My App ', accent: 'teal' })).status,
+    ).toBe(200)
+    expect(server.system.current().project.appearance).toEqual({ title: 'My App', accent: 'teal' })
+    const named = await manifest()
+    expect(named.name).toBe('My App')
+    const icon = await (await fetch(server.url + named.icons[0].src)).text()
+    expect(icon).toContain('stroke="#4dc2c2"')
+    expect((await post(server, '/api/appearance', { accent: 'orange' })).status).toBe(400)
+    // Violet is a choice like any other; only `null` leaves the accent to the browser's theme.
+    await post(server, '/api/appearance', { accent: 'violet' })
+    expect(server.system.current().project.appearance.accent).toBe('violet')
+    await post(server, '/api/appearance', { title: '', accent: null })
+    expect(server.system.current().project.appearance).toEqual({})
+    expect((await manifest()).name).toBe(folder)
+  })
+
   it('shares root UI snapshots and set/delete deltas across conversations and reopen', async () => {
     const { server, options } = await fixture()
     const created = await post(server, '/api/conversations')

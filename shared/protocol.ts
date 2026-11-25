@@ -10,6 +10,23 @@ import type {
 } from '@earendil-works/pi-durable'
 import type { ModelRuntime } from '@earendil-works/pi-coding-agent'
 
+/** The accent presets (`web/src/index.css`); violet is the default. */
+export const ACCENTS = ['violet', 'blue', 'teal', 'green', 'pink', 'ruby', 'graphite'] as const
+export type Accent = (typeof ACCENTS)[number]
+/**
+ * A project's accent and window title; unset ones are the defaults: the browser's theme's accent, and the project's
+ * folder name.
+ */
+export interface ProjectAppearance {
+  accent?: Accent
+  title?: string
+}
+/** A change of the project's appearance: a `null` accent unsets it. */
+export interface AppearanceChange {
+  accent?: Accent | null
+  title?: string
+}
+
 export const imageMimeTypes = ['image/png', 'image/jpeg', 'image/webp', 'image/gif']
 export const maxImageBytes = 2 * 1024 * 1024
 export const maxImages = 4
@@ -143,6 +160,8 @@ export interface SystemInfo {
     readme?: string
     settings: Record<string, JsonValue>
     settingsError?: string
+    /** This project's look on this machine, set in the Appearance panel (`server/appearance.ts`). */
+    appearance: ProjectAppearance
   }
   code: { ultimateRoot: string; branch: string; sha: string; dirty: boolean; coreStale?: boolean }
   extensionDiagnostics: string[]

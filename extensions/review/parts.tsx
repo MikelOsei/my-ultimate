@@ -1,7 +1,9 @@
 import { FileDiffIcon } from 'lucide-react'
 import type { ReactNode } from 'react'
+import { InsetCard } from '@/components/ui/inset-card'
 import { Skeleton } from '@/components/ui/skeleton'
-import { Header, StatusLine } from '@/sdk'
+import { Header, StatusLine, usePaneWidth } from '@/sdk'
+import { FILES_WIDTH } from './files.tsx'
 
 /** The surface's frame: its header with `controls`, the body, the status line. */
 export function Frame({ controls, children }: { controls?: ReactNode; children: ReactNode }) {
@@ -31,13 +33,17 @@ export function Notice({ children }: { children: ReactNode }) {
 
 /** File list and diff blocks while the diff loads. */
 export function Loading() {
+  const [files] = usePaneWidth('review-files', FILES_WIDTH)
   return (
     <>
-      <div className="w-64 shrink-0 space-y-2 border-r border-border/70 p-3 max-md:hidden">
+      <InsetCard
+        className="my-2 ml-2 shrink-0 space-y-2 p-3 max-md:hidden"
+        style={{ width: files }}
+      >
         {[60, 80, 70, 50, 75].map((width) => (
           <Skeleton className="h-3.5" key={width} style={{ width: `${width}%` }} />
         ))}
-      </div>
+      </InsetCard>
       <div className="min-w-0 flex-1 space-y-3 p-4">
         <Skeleton className="h-8" />
         <Skeleton className="h-48" />

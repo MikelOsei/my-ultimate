@@ -5,6 +5,7 @@ import {
   ListPlusIcon,
   LoaderCircleIcon,
   PaperclipIcon,
+  ReplyIcon,
   XIcon,
 } from 'lucide-react'
 import { createContext, useContext, useEffect, useRef, useState, useSyncExternalStore } from 'react'
@@ -21,7 +22,7 @@ import { Kbd } from '@/components/ui/kbd'
 import { api } from '../sdk/client.ts'
 import { ConversationIdContext } from '../sdk/conversation-scope.tsx'
 import { errorMessage } from '../sdk/format.ts'
-import { events } from '../sdk/events.ts'
+import { events, useEvent } from '../sdk/events.ts'
 import {
   TranscriptContext,
   useConversation,
@@ -36,6 +37,7 @@ import { ExtensionBoundary, Slot } from './boundary.tsx'
 import { composerRenderers, inboxRenderer } from '../sdk/registry.ts'
 import { column } from './layout.ts'
 import { storeImages, storedImages } from './draft-images.ts'
+import { storeReply, storedReply, withReply, type Reply } from './reply.ts'
 import {
   atFirstLine,
   mergedSteer,
@@ -185,6 +187,8 @@ export function Composer({ dock }: { dock?: boolean }) {
 type Draft = {
   text: string
   images: { data: string; mimeType: string }[]
+  /** The message this draft replies to; its quote leads the sent text. */
+  reply?: Reply
   error?: string
   sending: boolean
   revision: number
@@ -197,6 +201,7 @@ function createDraft(id: number | undefined) {
   let value: Draft = {
     text: key ? (localStorage.getItem(key) ?? '') : '',
     images: key ? storedImages(key) : [],
+    reply: key ? storedReply(key) : undefined,
     sending: false,
     revision: 0,
   }
@@ -211,9 +216,10 @@ function createDraft(id: number | undefined) {
       }
     },
     set: (change: Partial<Draft>) => {
-      const images = value.images
+      const { images, reply } = value
       value = { ...value, ...change }
       if (key && value.images !== images) storeImages(key, value.images)
+      if (key && value.reply !== reply) storeReply(key, value.reply)
       for (const listener of listeners) listener()
     },
   }
@@ -264,7 +270,14 @@ function ConversationComposer({ dock }: { dock?: boolean }) {
   const scoped = useContext(ConversationIdContext)
   const target = useContext(ComposerTargetContext)
   const draft = getDraft(id)
-  const { text, images, error, sending } = useSyncExternalStore(draft.subscribe, draft.get)
+  const { text, images, reply, error, sending } = useSyncExternalStore(draft.subscribe, draft.get)
+  // A message's Reply makes this draft answer it: the quote shows above the editor, which takes focus.
+  useEvent('ultimate:reply', (value) => {
+    const { conversationId, reply: quoted } = value as { conversationId: number; reply: Reply }
+    if (conversationId !== id) return
+    draft.set({ reply: quoted })
+    document.querySelector<HTMLTextAreaElement>(`textarea[data-conversation="${id}"]`)?.focus()
+  })
   const setError = (message: string | undefined) => draft.set({ error: message })
   const setImages = (change: (images: Draft['images']) => Draft['images']) =>
     draft.set({ images: change(draft.get().images), revision: draft.get().revision + 1 })
@@ -332,13 +345,15 @@ function ConversationComposer({ dock }: { dock?: boolean }) {
     }
     draft.set({ sending: true, error: undefined })
     const mode = busy ? (whenBusy ?? 'steer') : undefined
-    let input = { text: text.trim(), images }
+    let input = { text: withReply(text.trim(), reply), images }
     let previous: typeof input | undefined
     try {
       if (target) await target.send(input.text)
       else {
         // A steer queued behind another joins it as one: the run reads a single steer at its next boundary.
-        previous = mode === 'steer' ? await withdrawQueuedSteer(api, id, inbox) : undefined
+        // A reply stays its own steer, so its quote still leads it.
+        previous =
+          mode === 'steer' && !reply ? await withdrawQueuedSteer(api, id, inbox) : undefined
         if (previous) input = mergedSteer(previous, input)
         // Sending means following the run from here, wherever the reader had scrolled to.
         events.emit('ultimate:sent', { conversationId: id })
@@ -351,6 +366,7 @@ function ConversationComposer({ dock }: { dock?: boolean }) {
       }
       clearDraft(draft, submitted)
       if (draft.get().images === submitted.images) draft.set({ images: [] })
+      if (draft.get().reply === submitted.reply) draft.set({ reply: undefined })
     } catch (failure) {
       if (key && draft.get().revision === submitted.revision)
         draft.set({ text: localStorage.getItem(key) ?? '' })
@@ -404,6 +420,7 @@ function ConversationComposer({ dock }: { dock?: boolean }) {
       data-ui="composer"
       className={cn(column(dock), 'pb-2')}
     >
+      {scoped === undefined && <Slot name="composer.above" variant="inline" />}
       <Inbox items={inbox} />
       <PromptInput
         className={cn(dragging && 'ring-2 ring-brand/60')}
@@ -413,6 +430,27 @@ function ConversationComposer({ dock }: { dock?: boolean }) {
           void send()
         }}
       >
+        {reply && (
+          <div
+            className="flex min-w-0 items-center gap-1.5 px-3 pt-2 font-mono text-[11px] text-muted-foreground"
+            data-composer-reply={reply.id}
+          >
+            <ReplyIcon className="size-3 shrink-0" />
+            <span className="min-w-0 truncate" title={reply.excerpt}>
+              {reply.excerpt}
+            </span>
+            <button
+              aria-label="Remove reply"
+              className="shrink-0 cursor-pointer rounded p-0.5 transition-colors hover:text-foreground disabled:pointer-events-none"
+              disabled={sending}
+              onClick={() => draft.set({ reply: undefined })}
+              title="Remove reply"
+              type="button"
+            >
+              <XIcon className="size-3" />
+            </button>
+          </div>
+        )}
         <ImagePreviews
           images={images}
           disabled={loading || sending || reading}

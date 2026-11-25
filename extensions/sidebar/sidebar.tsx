@@ -86,7 +86,7 @@ function Project({
       ) : (
         <div
           className={cn(
-            'group/project mx-2 mt-1 flex h-8 min-w-0 items-center rounded-md text-[13px] font-medium text-foreground/90 has-[[data-root-context]:hover]:bg-sidebar-accent/50',
+            'group/project @container mx-2 mt-1 flex h-8 min-w-0 items-center rounded-md text-[13px] font-medium text-foreground/90 has-[[data-root-context]:hover]:bg-sidebar-accent/50',
             shown && 'bg-sidebar-accent has-[[data-root-context]:hover]:bg-sidebar-accent',
           )}
         >
@@ -113,7 +113,8 @@ function Project({
           >
             <FolderIcon className="size-3.5 shrink-0 text-muted-foreground" />
             <span className="truncate">{title}</span>
-            <span className="ml-auto shrink-0 font-mono text-[10px] font-normal text-muted-foreground/50 group-hover/project:text-muted-foreground">
+            {/* A narrow sidebar keeps the project's name rather than this label. */}
+            <span className="ml-auto shrink-0 font-mono text-[10px] font-normal text-muted-foreground/50 group-hover/project:text-muted-foreground @max-[13rem]:hidden">
               History #{root}
             </span>
           </button>
@@ -395,7 +396,7 @@ function Tree({
             {state === 'working' && conversation ? (
               <StandingPhase id={conversation.id} />
             ) : (
-              <span className={cn('shrink-0', stateTone[state])}>{stateWord(state, waiting)}</span>
+              <span className={cn('truncate', stateTone[state])}>{stateWord(state, waiting)}</span>
             )}
             {latest > 0 && (
               <span

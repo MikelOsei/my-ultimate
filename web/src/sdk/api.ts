@@ -5,6 +5,7 @@ import type {
   CreateConversationResponse,
   EmptyResponse,
   HistoryResponse,
+  AppearanceChange,
   ExtensionActionRequest,
   ExtensionActionResponse,
   SubmitRequest,
@@ -123,6 +124,8 @@ export function createApi(store: Store, options: { fetch?: typeof fetch } = {}) 
     createConversation: (create: CreateConversationRequest = {}) =>
       post<CreateConversationResponse>('/api/conversations', create),
     restart: () => post<unknown>('/api/restart'),
+    /** Set this project's accent or window title; an empty title unsets it. */
+    setAppearance: (change: AppearanceChange) => post<EmptyResponse>('/api/appearance', change),
     /**
      * Call the action `ref` names (`export const actions` in its extension's `server.ts`, typed in its `refs.ts`)
      * with JSON `args`, on behalf of the shown conversation, and resolve with its result. Rejects

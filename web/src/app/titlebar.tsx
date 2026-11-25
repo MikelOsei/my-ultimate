@@ -12,18 +12,16 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import type { SystemInfo } from '../../../shared/protocol.ts'
-import { actions } from '../sdk/actions.ts'
-import { shortenPath } from '../sdk/format.ts'
+import { actions, pickSurface } from '../sdk/actions.ts'
 import { useExtensions, useStore, useSystem } from '../sdk/hooks.ts'
 import { HOME, slotItems, surfaceItems } from '../sdk/registry.ts'
 import { Slot } from './boundary.tsx'
 import { Shortcut } from './palette.tsx'
-import { sidebarWidthBeyondPhone } from './primitives.tsx'
 
 /**
- * The project as tabs name it: its folder from home. A branch's checkout (`<home>/worktrees/<id>`) is the project's
- * name and that conversation, and a server with a home outside `~/.ultimate/projects`, as test previews have, says
- * it is a preview.
+ * The project as windows and tabs name it: the title set in Appearance, else its folder's name. A branch's checkout
+ * (`<home>/worktrees/<id>`) is the project's name and that conversation, and a server with a home outside
+ * `~/.ultimate/projects`, as test previews have, says it is a preview.
  */
 export function projectTitle(system: SystemInfo | undefined) {
   if (!system) return undefined
@@ -31,9 +29,9 @@ export function projectTitle(system: SystemInfo | undefined) {
   const worktree = /\/\.ultimate\/projects\/(.+)-[\da-f]{8}\/worktrees\/(\d+)$/.exec(
     system.project.root,
   )
-  const project = worktree
-    ? `${worktree[1]} #${worktree[2]}`
-    : shortenPath(system.project.root, { home })
+  const project =
+    system.project.appearance.title ??
+    (worktree ? `${worktree[1]} #${worktree[2]}` : system.project.name)
   return system.persistence.path.startsWith(`${home}/.ultimate/projects/`)
     ? project
     : `preview · ${project}`
@@ -70,7 +68,7 @@ export const ProjectChip = forwardRef<
   const body = (
     <>
       {preview && (
-        <span className="text-muted-foreground max-md:hidden">preview{name && ' ·'}</span>
+        <span className="truncate text-muted-foreground max-md:hidden">preview{name && ' ·'}</span>
       )}
       {name && <span className="truncate">{name}</span>}
       {children}
@@ -185,7 +183,7 @@ function Brand() {
                 className="items-start gap-2.5 py-1.5"
                 data-surface={surface.id}
                 key={surface.id}
-                onSelect={() => actions.showSurface(surface.id)}
+                onSelect={() => pickSurface(surface.id)}
               >
                 <Item
                   className={cn('mt-0.5 size-4', active ? 'text-brand' : 'text-muted-foreground')}
@@ -214,7 +212,7 @@ function Brand() {
   )
 }
 
-/** One lowercase word per surface beyond a phone, the shown one underlined in brand at the bar's bottom edge. */
+/** One icon and lowercase word per surface beyond a phone, the shown one underlined in brand at the bar's bottom edge. */
 function SurfaceItems() {
   const surfaces = surfaceItems(useExtensions())
   const shown = useStore((state) => state.ui.surface?.id)
@@ -224,20 +222,22 @@ function SurfaceItems() {
       data-ui="surface-tabs"
     >
       {surfaces.map((surface, index) => {
+        const Icon = surface.icon
         const active = surface.id === shown
         const button = (
           <button
             aria-current={active ? 'page' : undefined}
             className={cn(
-              'flex cursor-pointer items-center border-y-2 border-transparent px-0.5 lowercase transition-colors outline-none hover:text-foreground focus-visible:text-foreground',
+              'flex cursor-pointer items-center gap-1.5 border-y-2 border-transparent px-0.5 lowercase transition-colors outline-none hover:text-foreground focus-visible:text-foreground',
               active && 'border-b-brand text-foreground',
             )}
             data-selected={active || undefined}
             data-surface={surface.id}
             key={surface.id}
-            onClick={() => actions.showSurface(surface.id)}
+            onClick={() => pickSurface(surface.id)}
             type="button"
           >
+            <Icon className={cn('size-3.5', active && 'text-brand')} />
             {surface.title}
           </button>
         )
@@ -269,12 +269,7 @@ export function TitleBar() {
     >
       <div className="flex min-w-0 flex-1 items-center overflow-hidden whitespace-nowrap">
         {/* As wide as the docked sidebar on every surface, so the surfaces never move and start where Agent's conversation does. */}
-        <div
-          className={cn(
-            'flex min-w-0 items-center gap-2 overflow-hidden pl-3 pr-3 md:shrink-0 md:pr-2',
-            sidebarWidthBeyondPhone,
-          )}
-        >
+        <div className="flex min-w-0 items-center gap-2 overflow-hidden pl-3 pr-3 md:w-(--sidebar-width) md:shrink-0 md:pr-2">
           <Brand />
           <Project />
           <Slot name="titlebar.left" variant="inline" />

@@ -268,7 +268,8 @@ export function TaskRow({ task, tree, ...place }: { task: TaskGraphNode; tree: T
         <Guides {...place} />
         <ToolStatusIcon className="size-3" state={icon} />
         <span className="min-w-0 flex-1">
-          <span className="flex min-w-0 items-center gap-1.5 overflow-hidden text-foreground/90">
+          {/* Narrow, who it is about moves to a line of its own rather than being cut. */}
+          <span className="flex min-w-0 items-center gap-1.5 overflow-hidden text-foreground/90 @max-[18rem]:flex-wrap @max-[18rem]:gap-y-0">
             <span className="shrink-0">{named?.text ?? task.kind}</span>
             <Who who={named?.who} />
           </span>
@@ -456,8 +457,8 @@ function TasksPanel() {
   }
   const busy = tasks.filter((task) => task.state.status === 'running' && !task.blocked).length
   return (
-    <div className="py-2">
-      <div className="flex items-center gap-2 px-3 pb-1 section-label">
+    <div className="@container py-2">
+      <div className="flex flex-wrap items-center gap-x-2 px-3 pb-1 section-label whitespace-nowrap">
         Task graph
         <span className="ml-auto text-muted-foreground/70">
           {tasks.length} live{busy > 0 && ` · ${busy} running`}

@@ -25,7 +25,8 @@ vi.stubGlobal('matchMedia', (query: string) => ({
   removeEventListener: () => {},
 }))
 
-const { actions, regionOpen } = await import('../../web/src/sdk/actions.ts')
+const { actions, layout, onSurfaceReselect, pickSurface, regionOpen } =
+  await import('../../web/src/sdk/actions.ts')
 
 beforeEach(() => {
   shared.clear()
@@ -33,6 +34,9 @@ beforeEach(() => {
 })
 
 describe('sidebar and panel', () => {
+  // The shown surface renders the panels, as Agent does.
+  beforeEach(() => layout.mount('panels'))
+
   it('keep their shared state on a desktop', () => {
     width.current = 1440
     expect(regionOpen('sidebar')).toBe(true)
@@ -80,5 +84,34 @@ describe('sidebar and panel', () => {
     actions.toggleSidebar()
     expect(regionOpen('sidebar')).toBe(false)
     expect(shared.get('shell.sidebarOpen')).toBeUndefined()
+  })
+})
+
+describe('a panel opened on a surface without panels', () => {
+  it('shows Agent with the panel open', () => {
+    width.current = 1440
+    shared.set('shell.surface', 'review')
+    actions.openPanel('theme')
+    expect(Object.fromEntries(shared)).toEqual({
+      'shell.surface': 'agent',
+      'shell.panelOpen': true,
+      'shell.panel': 'theme',
+    })
+  })
+})
+
+describe('picking a surface', () => {
+  it('tells only the surface already on screen, so it can go back to its start', () => {
+    const picked: string[] = []
+    const stop = onSurfaceReselect((id) => picked.push(id))
+    ui.current = { surface: { id: 'agent', title: 'Agent' } }
+    pickSurface('review')
+    expect([shared.get('shell.surface'), picked]).toEqual(['review', []])
+    ui.current = { surface: { id: 'review', title: 'Review' } }
+    pickSurface('review')
+    actions.showSurface('review')
+    stop()
+    pickSurface('review')
+    expect(picked).toEqual(['review'])
   })
 })

@@ -50,12 +50,12 @@ function ActivityPanel() {
   const problems = recent.filter(loud).length
   const where = range === 'all' ? 'the log' : `the last ${range}`
   return (
-    <div className="py-2" data-activity-panel>
-      <div className="flex items-center gap-2 px-3 pb-1.5 section-label">
+    <div className="@container py-2" data-activity-panel>
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 px-3 pb-1.5 section-label">
         Activity
         {problems > 0 && filter !== 'problems' && (
           <button
-            className="ml-auto cursor-pointer text-warning hover:underline"
+            className="ml-auto cursor-pointer whitespace-nowrap text-warning hover:underline"
             onClick={() => setFilter('problems')}
             title="Show only problems"
             type="button"
@@ -66,7 +66,8 @@ function ActivityPanel() {
         {system && (
           <button
             className={cn(
-              'cursor-pointer text-muted-foreground/70 hover:text-foreground',
+              // A narrow panel leaves the link out; the System surface stays in the title bar.
+              'cursor-pointer whitespace-nowrap text-muted-foreground/70 hover:text-foreground @max-[16rem]:hidden',
               !(problems > 0 && filter !== 'problems') && 'ml-auto',
             )}
             onClick={() => actions.showSurface('system')}

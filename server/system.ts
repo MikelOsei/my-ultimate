@@ -13,6 +13,7 @@ import {
 import { relative, basename, join } from 'node:path'
 import { projectSkills } from './skills.ts'
 import { projectSetup, projectSettings } from './project-setup.ts'
+import { readAppearance } from './appearance.ts'
 import { loadProjectContextFiles } from '@earendil-works/pi-coding-agent'
 import type { ExtensionInfo, SystemInfo } from '../shared/protocol.ts'
 import type { Watch } from './extensions.ts'
@@ -105,6 +106,10 @@ export async function createSystem(
         ...(await projectSetup(host.projectRoot, host.userHome)),
         settings,
         ...(settingsError ? { settingsError } : {}),
+        appearance: await readAppearance(host.home).catch((error: unknown) => {
+          notice(`Reading the project's appearance failed: ${String(error)}`)
+          return {}
+        }),
       },
       machine: {
         hostname: hostname(),

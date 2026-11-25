@@ -192,7 +192,7 @@ function ProjectSetup({ system }: { system: SystemInfo }) {
           ) : (
             <CopyPlusIcon className="size-3.5" />
           )}
-          Use this project's setup everywhere
+          <span className="truncate">Use this project's setup everywhere</span>
         </Button>
       )}
       {error && <p className="mt-2 font-mono text-[11px] leading-snug text-error">{error}</p>}
@@ -478,7 +478,7 @@ function Row({
             />
             <span
               className={cn(
-                'shrink-0',
+                'min-w-0 shrink-0 truncate @max-[18rem]:shrink',
                 failure
                   ? 'text-error'
                   : extension.enabled
@@ -489,8 +489,9 @@ function Row({
               {extension.name}
             </span>
             <span
+              // A narrow panel keeps the name; where it comes from is secondary.
               className={cn(
-                'truncate text-[10.5px]',
+                'truncate text-[10.5px] @max-[18rem]:hidden',
                 extension.source === 'builtin' ? 'text-muted-foreground/70' : 'text-brand',
               )}
               title={`${extension.path}\n${reason}`}
@@ -499,15 +500,19 @@ function Row({
               <span className="text-muted-foreground/60"> · {label}</span>
             </span>
             {secrets.some((secret) => !secret.set && !secret.via) && (
-              <span className="flex shrink-0 items-center gap-1 self-center text-[10.5px] text-warning">
+              <span
+                className="flex shrink-0 items-center gap-1 self-center text-[10.5px] text-warning"
+                title="secret missing"
+              >
                 <TriangleAlertIcon className="size-3" />
-                secret missing
+                {/* Narrow, the icon alone says it. */}
+                <span className="@max-[18rem]:hidden">secret missing</span>
               </span>
             )}
           </span>
           <Line
             className={cn(
-              'mt-0.5 block pl-[18px] text-[12px] leading-snug text-muted-foreground',
+              'mt-0.5 block pl-[18px] text-[12px] leading-snug break-words text-muted-foreground',
               !open && 'line-clamp-2',
             )}
             text={line}
@@ -643,7 +648,7 @@ export function ExtensionsPanel() {
     ['Available', sorted.filter((extension) => !extension.enabled)],
   ]
   return (
-    <div className="pb-4" ref={root}>
+    <div className="@container pb-4" ref={root}>
       <p aria-live="polite" className="sr-only">
         {announcement}
       </p>
@@ -651,8 +656,8 @@ export function ExtensionsPanel() {
       <ProjectSetup system={system} />
       <SecretsLine secrets={secrets} />
       <div className="sticky top-0 z-10 border-b border-border/60 bg-sidebar/95 px-3 py-2 backdrop-blur-sm">
-        <div className="flex items-center gap-2">
-          <Heading className="flex-1">Changes apply</Heading>
+        <div className="flex flex-wrap items-center gap-2">
+          <Heading className="flex-1 whitespace-nowrap">Changes apply</Heading>
           <Segmented
             label="Where switches save"
             onChange={setChosen}

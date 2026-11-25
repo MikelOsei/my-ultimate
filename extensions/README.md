@@ -321,6 +321,7 @@ title bar the host shows above every surface.
 | `header.right`         | Right side of the header, before the panel toggle (`<Header>`)                                               |
 | `statusline.left`      | Bottom status line, left; monospace, one line (`<StatusLine />`)                                             |
 | `statusline.right`     | Bottom status line, right (`<StatusLine />`); on a phone only `phone: true` items stay, the rest go behind ⋯ |
+| `composer.above`       | Above the shown conversation's composer, not a scoped one such as a side chat; one quiet line                |
 | `composer.toolbar`     | Left of the composer's footer; a size container, condense with `@max-md:` (`<Conversation />`)               |
 | `composer.status`      | Line under the composer; conversation-specific, monospace, one line (`<Conversation />`)                     |
 | `composer.actions`     | Composer footer, beside Send; input helpers that write into the draft with `insertIntoComposer`              |
@@ -349,7 +350,7 @@ panels: [{ id: 'info', title: 'Info', icon: InfoIcon, component: InfoPanel }]
 
 Open one from code with `useUltimate().openPanel('info')`. A panel with `tab: false` stays out of the tab row until
 something opens it (a command, a sidebar row); give it a ⌘K command. Panels show on surfaces that render `<Panels />`, such
-as Agent.
+as Agent; opening one from any other surface switches to Agent.
 
 ### Surfaces (apps)
 
@@ -676,6 +677,9 @@ usually docked beside it. The `documents` extension provides the Documents tab.
   the page take before its tab switching). In code: `useUltimate().showSurface(id)` or
   `context.showSurface(id)` in a command. Switching never interrupts the agent: the run goes on, and the transcript and
   the composer's draft are where they were.
+- **Picking it again**: when the user picks the surface already on screen (its tab, the menu, `mod+<n>`), a
+  `useSurfaceReselect(handler)` inside it runs `handler`, to go back to the surface's start, as the list from an item
+  it shows. `showSurface` from code never triggers it.
 - **Durable**: the choice is UI state `shell.surface`; it survives reloads and restarts and follows every tab. Until the
   user picks one, a project's `.ultimate/settings.json` (`{ "defaultSurface": "commits" }`) chooses, if that surface
   is installed.
@@ -731,6 +735,7 @@ Import them from `@/sdk`. Each is a thin wrapper over the shell's own parts; the
 | `<Dock title? side?>`                     | A collapsible, resizable side region, `right` by default; `title` (default `conversation`) labels it. Drag the inner edge to resize, double-click it to reset. Collapsed, it is a rail that pulses while the agent works. Open state and width persist per surface (`shell.dock.<surface>.<side>`). |
 | `<Sidebar />`                             | The `sidebar` slot as a left column, toggled with `mod+b`; nothing while the slot is empty                                                                                                                                                                                                          |
 | `<Panels />`                              | The right panel with every extension's panel tabs, toggled with `mod+alt+b`                                                                                                                                                                                                                         |
+| `<ResizeHandle edge onResize onReset>`    | The sidebar's drag handle, on the inner `edge` of a `relative` pane; double-click resets. `usePaneWidth(name, { initial, min, max, share })` keeps its width per browser: `[width, setWidth]`.                                                                                                      |
 | `<Slot name variant? />`                  | Any slot by name, each item in its own error boundary; `variant="inline"` for one-line places                                                                                                                                                                                                       |
 
 Everything else on a surface is your own components, styled like the rest of Ultimate (see [Styling](#styling)).

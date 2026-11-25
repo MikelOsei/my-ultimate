@@ -25,7 +25,7 @@ export function Section({
       }
       open={!closed.includes(id)}
     >
-      <CollapsibleTrigger className="flex h-8 w-full items-center gap-1.5 px-3 section-label transition-colors hover:text-foreground">
+      <CollapsibleTrigger className="flex h-8 w-full items-center gap-1.5 px-3 section-label whitespace-nowrap transition-colors hover:text-foreground">
         <ChevronRightIcon className="size-3 shrink-0 transition-transform group-data-[state=open]/section:rotate-90" />
         {title}
         {meta !== undefined && (

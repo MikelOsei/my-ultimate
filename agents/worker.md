@@ -13,6 +13,8 @@ Iterate with targeted tests (`pnpm vitest run <files>`, `pnpm vitest related <ch
 
 Make one focused commit (Conventional Commits subject, a body saying what and why), staging only task files. Never commit failing checks.
 
+Uncommitted changes you did not make are the user's hand edits: never revert, restore, stash, reset or overwrite them, and re-read a file before rewriting it whole. Leave them uncommitted and name them in your report; when they conflict with the task, report BLOCKED.
+
 Report:
 
 ```text
